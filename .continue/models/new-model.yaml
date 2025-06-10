@@ -1,0 +1,22 @@
+name: New model
+version: 0.0.1
+schema: v1
+models:
+  - provider: anthropic
+    model: claude-3-7-sonnet-latest
+    apiKey: ${{ secrets.ANTHROPIC_API_KEY }}
+    name: Claude 3.7 Sonnet
+    roles:
+      - chat
+      - edit
+  - provider: ToghetherAI
+    model: together-llama-3-70b-instruct
+    apiKey: ${{ secrets.TOGETHERAI_API_KEY }}
+    name: TogetherAI Llama 3.70B Instruct
+    roles:
+      - chat
+      - edit
+  - name: Mistral 8x22B
+    provider: mistral
+    model: open-mixtral-8x22b
+    apiKey: HKT0feOKEHCpCVJA1W9tgKNzJMpgSSpy

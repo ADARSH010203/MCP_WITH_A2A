@@ -1,0 +1,20 @@
+FROM baseImage
+
+# Install dependencies
+RUN uv Install  -y requirements.txt
+# Copy application files
+COPY . /app
+WORKDIR /app
+# Expose the port the app runs on
+EXPOSE 8000
+# Start the application
+CMD ["uv", "run", "app.py", "--host", "0.0.0.0", "--port", "8000"]
+# Set environment variables
+ENV APP_ENV=production
+ENV APP_DEBUG=false
+# Set the user to run the application
+USER appuser
+# Health check to ensure the application is running
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:8000/health || exit 1
+# Add metadata to the image
