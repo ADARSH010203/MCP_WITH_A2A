@@ -1,6 +1,6 @@
 import asyncio
 from typing import Any, AsyncIterable, Dict, Literal
-
+from SUPPORTED_CONTENT_TYPES import SUPPORTED_CONTENT_TYPES
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_groq import ChatGroq
 from langgraph.checkpoint.memory import MemorySaver
@@ -84,7 +84,8 @@ class BaseAgent:
             "content": "We are unable to process your request at the moment. Please try again.",
         }
 
-    SUPPORTED_CONTENT_TYPES = ["text", "text/plain"]
+    SUPPORTED_CONTENT_TYPES = SUPPORTED_CONTENT_TYPES
+
 
 class EmailWriterAgent(BaseAgent):
     SYSTEM_INSTRUCTION = """
@@ -98,6 +99,17 @@ class EmailWriterAgent(BaseAgent):
     - Suggesting subject lines
     - Providing email etiquette tips
     - Reviewing and improving email drafts
+    You support multiple languages, including English, Hindi, Spanish, French, German, and more than 80 languages.
+
+    You can also help with other tasks related to email writing, such as:
+    - Writing professional business emails
+    - Crafting response emails
+    - Formatting email content
+    - Creating email templates
+    - Suggesting subject lines
+    - Providing email etiquette tips
+    - Reviewing and improving email drafts
+    You support multiple languages, including English, Hindi, Spanish, French, German, and more.
     If the user asks for anything unrelated to email writing, politely explain that you can only help with email-related tasks.
     Set response status to input_required if you need more details about the email.
     Set response status to error if there's an issue processing the request.

@@ -68,7 +68,7 @@ def main(host, port):
             tags=["games", "development", "design", "game mechanics", "game design", "game development"],
             examples=["Design a puzzle game concept", "Develop a 2D platformer game", "Create a 3D RPG game"],
         )
-        deep_learning_agent = AgentSkill(
+        deep_learning_skill = AgentSkill(
             id="deep_learning_agent",
             name="Deep Learning Agent",
             description="A specialized agent for deep learning tasks and performance optimization and model training and evaluation",
@@ -84,7 +84,7 @@ def main(host, port):
                 "Evaluate the accuracy of a trained model"
             ],
         )
-        rainforment_agent = AgentSkill(
+        rainforment_skill= AgentSkill(
             id="rainforment_agent",
             name="Rainforment Agent",
             description="A specialized agent for rainforment tasks and performance optimization and model training and evaluation",
@@ -100,7 +100,7 @@ def main(host, port):
                 "Evaluate the accuracy of a trained model"
             ],
         )
-        dsa_agent = AgentSkill(
+        dsa_skill = AgentSkill(
             id  = "data_structures_and_algorithms_agent",
             name = "dsa_agent",
             description=(
@@ -132,10 +132,11 @@ def main(host, port):
             description="A versatile agent providing multiple specialized services",
             url=f"http://{host}:{port}/",
             version="1.0.0",
-            defaultInputModes=["text", "text/plain"],
-            defaultOutputModes=["text", "text/plain", "image/png", "image/jpeg"],
+            defaultInputModes=["text", "text/plain","code", "text/html"],
+            defaultOutputModes=["text", "text/plain", "image/png", "image/jpeg","code", "text/html", "text/x-python", "text/x-javascript", "text/x-java", "text/x-c++", "text/x-csharp", "text/x-go", "text/x-ruby", "text/x-php", "text/x-typescript"],
+            
             capabilities=capabilities,
-            skills=[currency_skill, email_skill, code_skill, image_skill, game_skill, deep_learning_agent, rainforment_agent, dsa_agent],
+            skills=[currency_skill, email_skill, code_skill, image_skill, game_skill, deep_learning_skill, rainforment_skill, dsa_skill],
         )
         notification_sender_auth = PushNotificationSenderAuth()
         notification_sender_auth.generate_jwk()

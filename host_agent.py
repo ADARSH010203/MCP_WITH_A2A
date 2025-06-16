@@ -8,7 +8,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import tool
 from langchain_groq import ChatGroq
 
-# os.environ["GROQ_API_KEY"] = ""
+os.environ["GROQ_API_KEY"] = "YOUR_GROQ_API_KEY"
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
@@ -200,7 +200,7 @@ def build_react_agent(host_agent: HostAgent):
     # Create the top-level LLM using Groq
     llm = ChatGroq(
         temperature=0,
-        model="meta-llama/llama-4-scout-17b-16e-instruct",  # Using a more stable model
+        model="meta-llama/llama-4-maverick-17b-128e-instruct",  # Using a more stable model
         streaming=False
     )
     memory = MemorySaver()
