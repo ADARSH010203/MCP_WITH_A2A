@@ -185,9 +185,9 @@ class RemoteA2ASpecialist:
         session_id: str,
     ) -> AsyncIterable[dict[str, Any]]:
         task_id = uuid4().hex
-        client = self._ensure_client()
 
         try:
+            client = await asyncio.to_thread(self._ensure_client)
             async for event in client.send_task_streaming(
                 self._payload(task_id, session_id, query)
             ):
@@ -241,7 +241,7 @@ class RemoteA2ASpecialist:
                             "completed"
                             if state == TaskState.COMPLETED
                             else (
-                                "timeout"
+                                "error"
                                 if state == TaskState.FAILED
                                 else "working"
                             )
