@@ -641,6 +641,8 @@ class MultiAgent:
                 outcome
                 for outcome in outcomes
                 if outcome["agent"] in handoff_targets[target]
+                and outcome["status"] == "completed"
+                and outcome["content"]
             ]
             outcomes.append(
                 self._run_specialist(
@@ -837,6 +839,8 @@ class MultiAgent:
                 outcome
                 for outcome in outcomes
                 if outcome["agent"] in handoff_targets[target]
+                and outcome["status"] == "completed"
+                and outcome["content"]
             ]
             outcome = await asyncio.to_thread(
                 self._run_specialist,
