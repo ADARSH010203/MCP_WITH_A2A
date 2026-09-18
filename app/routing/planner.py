@@ -135,10 +135,6 @@ class CollaborationPlanner:
 
         dependency_map = self._build_dependency_graph(agents, handoff_targets)
 
-        for agent in agents:
-            if agent not in task_focus and agent not in handoff_targets:
-                raise ValueError(f"Unknown specialist agent: {agent}")
-
         if parallel_capabilities is None:
             parallel_capabilities = {agent: True for agent in agents}
 
