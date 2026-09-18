@@ -102,9 +102,15 @@ MCP_WITH_A2A/
 │   │   ├── remote_specialist.py
 │   │   ├── planner.py
 │   │   └── tracing.py
+│   ├── evaluation/
+│   │   ├── __init__.py
+│   │   ├── models.py
+│   │   └── benchmark.py
 │   └── config/
 │       ├── constants.py
 │       └── settings.py
+├── benchmarks/
+│   └── routing_cases.json
 ├── host/
 │   ├── host_agent.py
 │   ├── google_host_agent.py
@@ -115,7 +121,10 @@ MCP_WITH_A2A/
 │   ├── run_a2a_server.py
 │   ├── run_mcp_server.py
 │   └── run_specialist_a2a_server.py
+├── experiments/
+│   └── run_evaluation.py
 ├── tests/
+│   ├── test_evaluation.py
 │   ├── test_router.py
 │   ├── test_planner.py
 │   ├── test_task_manager.py
