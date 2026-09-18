@@ -1,55 +1,113 @@
-A2A + MCP Example with Streamlit Frontend
+# A2A + MCP Multi-Agent System
 
-This project demonstrates communication between agents using the Agent-to-Agent (A2A) protocol in combination with the Model-Context-Protocol (MCP). It now includes a Streamlit frontend for easy interaction with the multi-agent system.
+A Python multi-agent example that combines **Agent-to-Agent (A2A)** communication with the **Model Context Protocol (MCP)**.
 
-## 🔧 Components
+The project uses one A2A server to expose a multi-purpose agent. The server routes incoming tasks to specialized agents such as currency, email, coding, image, game, deep learning, reinforcement learning, and DSA. The currency agent demonstrates MCP tool access through an MCP server.
 
-- **mcp_app.py**: MCP server providing tools (functions/endpoints) that can be used by agents.
-- **agentpartner.py**: Agent B — uses tools exposed by the MCP server.
-- **host_agent.py**: Agent A — communicates with Agent B using the A2A protocol.
-- **app.py**: Streamlit frontend for interacting with the multi-agent system.
+## Architecture
 
-## ▶️ How to Run
+```text
+User / Client
+     |
+     v
+ A2A Host / Client
+     |
+     v
+ Multi-Purpose A2A Agent
+     |
+     +--> Currency Agent ----> MCP Server ----> Exchange-rate tool
+     +--> Email Agent
+     +--> Code Agent
+     +--> Image Agent
+     +--> Game Agent
+     +--> Deep Learning Agent
+     +--> Reinforcement Learning Agent
+     +--> DSA Agent
+```
 
-1. **Install dependencies**
-   ```
-   pip install -r requirements.txt
-   ```
+### Main files
 
-2. **Start the MCP Server**
-   ```
-   python mcp_app.py
-   ```
-   This will start the MCP server that exposes tool endpoints.
+| File | Purpose |
+|---|---|
+| `agentpartner.py` | Starts the A2A server and publishes the agent card. |
+| `multi_agent.py` | Routes a request to the appropriate specialized agent. |
+| `agent.py` | Currency agent with MCP tool integration. |
+| `specialized_agents.py` | Shared base class and specialized LLM agents. |
+| `mcp_app.py` | MCP server exposing the currency tool. |
+| `server.py` | A2A JSON-RPC server and streaming endpoint handling. |
+| `client.py` | Async A2A client for normal and SSE requests. |
+| `custom_types.py` | A2A request, response, task, and agent-card models. |
 
-3. **Run Agent B (agentpartner)**
-   ```
-   python agentpartner.py
-   ```
-   Agent B will register itself and wait for instructions from Agent A.
+## Setup
 
-4. **Run Agent A (host agent)**
-   ```
-   python host_agent.py
-   ```
-   Agent A initiates communication with Agent B using the A2A protocol and calls MCP tools via Agent B.
+Use Python 3.11+.
 
-5. **Run the Streamlit Frontend (Optional)**
-   ```
-   streamlit run app.py
-   ```
-   This will start the Streamlit web interface where you can interact with the multi-agent system through a user-friendly UI.
+```bash
+python -m venv .venv
+# Windows
+.venv\Scripts\activate
+# Linux/macOS
+source .venv/bin/activate
 
-## ✅ Expected Result
+pip install -r requirements.txt
+```
 
-Agent A sends a request to Agent B via A2A. Agent B uses the MCP protocol to invoke tools and returns the result.
+Create a local `.env` file:
 
-## 🖥️ Streamlit Frontend Features
+```env
+GROQ_API_KEY=your_groq_api_key
+```
 
-- **User-friendly Interface**: Clean and intuitive UI for interacting with the agents
-- **API Key Management**: Securely enter your GROQ API key in the sidebar
-- **Chat History**: View and clear your conversation history
-- **Code Highlighting**: Automatic detection and syntax highlighting for code in responses
-- **Responsive Design**: Works well on different screen sizes
+Do not commit the real API key.
 
-Feel free to extend this setup with more tools or agents!
+## Run
+
+Start the MCP server first:
+
+```bash
+python mcp_app.py
+```
+
+Start the A2A server in a second terminal:
+
+```python
+python agentpartner.py --host 127.0.0.1 --port 8000
+```
+
+The A2A agent card is available at:
+
+```text
+http://127.0.0.1:8000/.well-known/agent.json
+```
+
+The MCP SSE endpoint is available at:
+
+```text
+http://127.0.0.1:3000/sse
+```
+
+## Example requests
+
+Currency request:
+
+```text
+What is the exchange rate between USD and EUR?
+```
+
+Coding request:
+
+```text
+Write a Python function to validate an email address.
+```
+
+DSA request:
+
+```text
+Explain binary search and its time complexity.
+```
+
+## Notes
+
+The current currency tool intentionally returns a placeholder rate. It is useful for demonstrating MCP tool calling, but it is **not a live market-rate service**.
+
+The repository also contains some experimental/demo modules and local assets. The production path is the A2A server, specialized-agent routing, and MCP integration described above.
