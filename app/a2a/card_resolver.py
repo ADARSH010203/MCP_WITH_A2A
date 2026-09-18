@@ -3,6 +3,7 @@ import json
 import httpx
 
 from app.a2a.models import A2AClientJSONError, AgentCard
+from app.config.settings import settings
 
 
 class A2ACardResolver:
@@ -12,7 +13,16 @@ class A2ACardResolver:
 
     def get_agent_card(self) -> AgentCard:
         with httpx.Client() as client:
-            response = client.get(self.base_url + "/" + self.agent_card_path)
+            headers = (
+                {"Authorization": f"Bearer {settings.a2a_api_key}"}
+                if settings.a2a_api_key
+                else {}
+            )
+            response = client.get(
+                self.base_url + "/" + self.agent_card_path,
+                headers=headers,
+                timeout=10,
+            )
             response.raise_for_status()
             try:
                 return AgentCard(**response.json())
