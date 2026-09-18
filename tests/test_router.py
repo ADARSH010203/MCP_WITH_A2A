@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 from app.a2a.models import Message
@@ -459,8 +460,6 @@ class SlowStreamingAgent(FakeAgent):
 
 
 def test_streaming_specialist_timeout_is_total_not_per_chunk():
-    import asyncio
-
     async def scenario():
         agents = fake_agents()
         agents["code"] = SlowStreamingAgent("code")
