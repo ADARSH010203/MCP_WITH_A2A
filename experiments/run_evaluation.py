@@ -30,10 +30,18 @@ def main() -> int:
         default=1.0,
         help="Minimum acceptable routing accuracy between 0 and 1.",
     )
+    parser.add_argument(
+        "--min-overall-accuracy",
+        type=float,
+        default=1.0,
+        help="Minimum acceptable full-case accuracy between 0 and 1.",
+    )
     args = parser.parse_args()
 
     if not 0.0 <= args.min_routing_accuracy <= 1.0:
         parser.error("--min-routing-accuracy must be between 0 and 1.")
+    if not 0.0 <= args.min_overall_accuracy <= 1.0:
+        parser.error("--min-overall-accuracy must be between 0 and 1.")
 
     report = run_benchmark(MultiAgent(agents={}), load_cases(args.cases))
     print(format_report(report))
@@ -45,7 +53,11 @@ def main() -> int:
             encoding="utf-8",
         )
 
-    return 0 if report.routing_accuracy >= args.min_routing_accuracy else 1
+    passed = (
+        report.routing_accuracy >= args.min_routing_accuracy
+        and report.overall_accuracy >= args.min_overall_accuracy
+    )
+    return 0 if passed else 1
 
 
 if __name__ == "__main__":
