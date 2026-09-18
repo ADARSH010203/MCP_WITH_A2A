@@ -145,6 +145,10 @@ def _load_specialist_urls() -> dict[str, str]:
             raise ValueError(
                 "A2A_SPECIALIST_URLS contains an invalid agent_type or URL"
             )
+        if agent_type in result:
+            raise ValueError(
+                f"A2A_SPECIALIST_URLS contains duplicate agent type: {agent_type}"
+            )
         if parsed.username or parsed.password:
             raise ValueError(
                 "A2A_SPECIALIST_URLS URLs must not contain embedded credentials"
