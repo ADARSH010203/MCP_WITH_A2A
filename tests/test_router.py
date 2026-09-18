@@ -392,3 +392,29 @@ def test_single_agent_trace_is_available():
     assert trace["event_count"] >= 3
     assert trace["events"][0]["stage"] == "plan_created"
     assert trace["events"][-1]["stage"] == "request_completed"
+
+
+
+def test_streaming_multi_agent_trace_reaches_final_event():
+    async def scenario():
+        router = MultiAgent(agents=fake_agents(), critic=FakeCritic())
+        events = []
+
+        async for event in router.stream(
+            "Build a Python CNN image classification pipeline",
+            "session-stream-trace",
+        ):
+            events.append(event)
+
+        assert events
+        final = events[-1]
+        assert final["is_task_complete"] is True
+
+        trace = final["collaboration_trace"]
+        assert trace["trace_id"]
+        assert trace["event_count"] >= 6
+        assert trace["events"][-1]["stage"] == "request_completed"
+
+    import asyncio
+
+    asyncio.run(scenario())
