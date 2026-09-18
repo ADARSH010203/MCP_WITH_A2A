@@ -55,9 +55,9 @@ Multi-Agent Router
   │
   └── Cross-domain request
         │
-        ├──► Specialist A ──┐
-        ├──► Specialist B ──┼──► Critic / Synthesizer ──► Final response
-        └──► Specialist C ──┘
+        ├──► Lead Specialist A ──┐
+        ├──► Lead Specialist B ──┼──► Dependent Specialist ──► Critic / Synthesizer ──► Final response
+        └──► Lead Specialist C ──┘
                  │
                  └── Currency Agent ──► MCP Currency Tool
 ```
@@ -69,6 +69,7 @@ MCP_WITH_A2A/
 ├── app/
 │   ├── agents/
 │   │   ├── base.py
+│   │   ├── critic.py
 │   │   ├── currency.py
 │   │   ├── email.py
 │   │   ├── code.py
@@ -83,6 +84,7 @@ MCP_WITH_A2A/
 │   │   ├── models.py
 │   │   ├── base_task_manager.py
 │   │   ├── task_manager.py
+│   │   ├── task_store.py
 │   │   ├── card_resolver.py
 │   │   ├── push_notification_auth.py
 │   │   └── in_memory_cache.py
@@ -106,6 +108,8 @@ MCP_WITH_A2A/
 │   └── run_mcp_server.py
 ├── tests/
 │   ├── test_router.py
+│   ├── test_task_manager.py
+│   ├── test_push_notification_auth.py
 │   └── test_mcp.py
 ├── .env.example
 ├── Dockerfile
@@ -146,6 +150,10 @@ GROQ_API_KEY=your_groq_api_key_here
 GROQ_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
 MCP_URL=http://127.0.0.1:3000/sse
 A2A_TASK_DB_PATH=.data/a2a_tasks.db
+A2A_MAX_COLLABORATIVE_AGENTS=3
+A2A_MAX_CONCURRENT_TASKS=8
+A2A_RATE_LIMIT_PER_MINUTE=60
+A2A_MAX_INPUT_CHARS=20000
 ```
 
 Never commit a real API key.
@@ -215,6 +223,7 @@ ruff check app host frontend scripts tests
 - SQLite persistence protects task records across a single server restart, but it does not provide distributed task state across multiple server processes.
 - Live SSE subscriptions and running workers are still process-local; an active task cannot be resumed automatically after a server restart.
 - Agent conversation memory is still in-process via LangGraph's memory checkpointer.
+- The critic performs consistency and completeness review; it is not an external fact-checking or source-verification system.
 - The default agent setup requires a valid Groq API key.
 - The current project is a demonstration architecture rather than a production-hardened distributed platform.
 
@@ -245,4 +254,4 @@ Tasks with the same ID and the same session/message are treated as retries and d
 
 ### Multi-agent cost control
 
-The collaboration coordinator limits a request to a small number of specialists (3 by default). This keeps cross-domain tasks useful without turning every request into an uncontrolled LLM fan-out.
+The collaboration coordinator limits a request to a small number of specialists (3 by default). For code-oriented cross-domain tasks, domain specialists run first and their findings are handed to the code specialist before critic synthesis. This keeps the workflow useful without turning every request into an uncontrolled LLM fan-out.
