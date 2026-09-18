@@ -4,7 +4,7 @@ import asyncio
 import re
 import threading
 from collections.abc import AsyncIterable, Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any, Protocol
 
 from app.a2a.models import Message
@@ -31,6 +31,22 @@ class Agent(Protocol):
 
 AgentFactory = Callable[[], Agent]
 CriticFactory = Callable[[], CriticAgent]
+
+
+class CallBudget:
+    """Thread-safe limit on model invocations within one top-level request."""
+
+    def __init__(self, limit: int) -> None:
+        self.limit = max(1, limit)
+        self.used = 0
+        self._lock = threading.Lock()
+
+    def reserve(self) -> bool:
+        with self._lock:
+            if self.used >= self.limit:
+                return False
+            self.used += 1
+            return True
 
 
 class MultiAgent:
@@ -201,6 +217,9 @@ class MultiAgent:
         self.critic_factory = critic_factory
         self.planner = planner or CollaborationPlanner()
         self.max_collaborative_agents = max(1, settings.a2a_max_collaborative_agents)
+        self.specialist_timeout_seconds = settings.a2a_specialist_timeout_seconds
+        self.specialist_max_retries = settings.a2a_specialist_max_retries
+        self.max_agent_calls_per_task = settings.a2a_max_agent_calls_per_task
         self._agent_lock = threading.Lock()
 
     @staticmethod
@@ -324,6 +343,97 @@ class MultiAgent:
         message = Message(role="user", parts=[{"type": "text", "text": query}])
         return self._get_agent(self._detect_agent_type(message))
 
+    def _invoke_with_timeout(
+        self,
+        agent_type: str,
+        query: str,
+        session_id: str,
+        budget: CallBudget,
+    ) -> dict[str, Any]:
+        if not budget.reserve():
+            return {
+                "agent": agent_type,
+                "status": "budget_exceeded",
+                "content": "Agent call budget exhausted before this specialist could run.",
+                "attempts": 0,
+            }
+
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="agent-call")
+        future = executor.submit(
+            self._get_agent(agent_type).invoke,
+            query,
+            session_id,
+        )
+        try:
+            result = future.result(timeout=self.specialist_timeout_seconds)
+        except FuturesTimeoutError:
+            future.cancel()
+            executor.shutdown(wait=False, cancel_futures=True)
+            return {
+                "agent": agent_type,
+                "status": "timeout",
+                "content": (
+                    f"{agent_type} specialist exceeded the "
+                    f"{self.specialist_timeout_seconds:g}s timeout."
+                ),
+                "attempts": 1,
+            }
+        except Exception as exc:
+            executor.shutdown(wait=False, cancel_futures=True)
+            return {
+                "agent": agent_type,
+                "status": "error",
+                "content": f"Specialist failed: {exc}",
+                "attempts": 1,
+            }
+        else:
+            executor.shutdown(wait=False, cancel_futures=True)
+            return {
+                "agent": agent_type,
+                "status": result.get("status", "error"),
+                "content": str(result.get("content", "")).strip(),
+                "attempts": 1,
+            }
+
+    async def _stream_agent_with_timeout(
+        self,
+        agent_type: str,
+        query: str,
+        session_id: str,
+        budget: CallBudget,
+    ) -> AsyncIterable[dict[str, Any]]:
+        if not budget.reserve():
+            yield {
+                "status": "budget_exceeded",
+                "is_task_complete": False,
+                "require_user_input": False,
+                "content": "Agent call budget exhausted before this specialist could run.",
+            }
+            return
+
+        stream = self._get_agent(agent_type).stream(query, session_id)
+        try:
+            while True:
+                item = await asyncio.wait_for(
+                    stream.__anext__(),
+                    timeout=self.specialist_timeout_seconds,
+                )
+                yield item
+        except StopAsyncIteration:
+            return
+        except asyncio.TimeoutError:
+            yield {
+                "status": "timeout",
+                "is_task_complete": False,
+                "require_user_input": False,
+                "content": (
+                    f"{agent_type} specialist exceeded the "
+                    f"{self.specialist_timeout_seconds:g}s streaming timeout."
+                ),
+            }
+        finally:
+            await stream.aclose()
+
     def _build_subtask(
         self,
         query: str,
@@ -363,24 +473,33 @@ class MultiAgent:
         query: str,
         session_id: str,
         upstream_findings: list[dict[str, Any]] | None = None,
+        budget: CallBudget | None = None,
     ) -> dict[str, Any]:
-        agent = self._get_agent(agent_type)
-        try:
-            result = agent.invoke(
-                self._build_subtask(query, agent_type, upstream_findings),
-                f"{session_id}:{agent_type}",
+        active_budget = budget or CallBudget(self.max_agent_calls_per_task)
+        prompt = self._build_subtask(query, agent_type, upstream_findings)
+
+        for attempt in range(self.specialist_max_retries + 1):
+            outcome = self._invoke_with_timeout(
+                agent_type,
+                prompt,
+                f"{session_id}:{agent_type}"
+                if attempt == 0
+                else f"{session_id}:{agent_type}:retry-{attempt}",
+                active_budget,
             )
-            return {
-                "agent": agent_type,
-                "status": result.get("status", "error"),
-                "content": str(result.get("content", "")).strip(),
-            }
-        except Exception as exc:
-            return {
-                "agent": agent_type,
-                "status": "error",
-                "content": f"Specialist failed: {exc}",
-            }
+            outcome["attempts"] = attempt + 1
+
+            if outcome["status"] != "error":
+                return outcome
+            if attempt >= self.specialist_max_retries:
+                return outcome
+
+        return {
+            "agent": agent_type,
+            "status": "error",
+            "content": "Specialist failed after retries.",
+            "attempts": self.specialist_max_retries + 1,
+        }
 
     def _run_parallel_specialists(
         self,
@@ -388,9 +507,12 @@ class MultiAgent:
         query: str,
         session_id: str,
         upstream_findings: list[dict[str, Any]] | None = None,
+        budget: CallBudget | None = None,
     ) -> list[dict[str, Any]]:
         if not agent_types:
             return []
+
+        active_budget = budget or CallBudget(self.max_agent_calls_per_task)
 
         with ThreadPoolExecutor(
             max_workers=len(agent_types),
@@ -403,6 +525,7 @@ class MultiAgent:
                     query,
                     session_id,
                     upstream_findings,
+                    active_budget,
                 )
                 for agent_type in agent_types
             ]
@@ -416,6 +539,7 @@ class MultiAgent:
     ) -> dict[str, Any]:
         agent_types = list(plan.agents)
         handoff_targets = plan.handoffs
+        budget = CallBudget(self.max_agent_calls_per_task)
         lead_types = [
             step.agent
             for step in plan.steps
@@ -426,6 +550,7 @@ class MultiAgent:
             lead_types,
             query,
             session_id,
+            budget=budget,
         )
 
         for target in handoff_targets:
@@ -440,6 +565,7 @@ class MultiAgent:
                     query,
                     session_id,
                     upstream_findings=upstream,
+                    budget=budget,
                 )
             )
 
@@ -475,6 +601,24 @@ class MultiAgent:
                 "require_user_input": False,
                 "content": "All selected specialist agents failed to produce a result.",
                 "agents_used": agent_types,
+                "collaboration_plan": plan.to_dict(),
+            }
+
+        if not budget.reserve():
+            fallback = "\n\n".join(
+                f"{item['agent']}: {item['content']}"
+                for item in successful
+            )
+            return {
+                "status": "completed",
+                "is_task_complete": True,
+                "require_user_input": False,
+                "content": (
+                    "Critic call budget exhausted. Returning successful specialist findings "
+                    "without synthesis:\n\n" + fallback
+                ),
+                "agents_used": agent_types,
+                "critic_reviewed": False,
                 "collaboration_plan": plan.to_dict(),
             }
 
