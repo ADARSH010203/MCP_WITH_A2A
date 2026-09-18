@@ -149,3 +149,29 @@ def test_collaboration_runs_specialists_and_critic():
 
     for agent_type in used_agents:
         assert len(agents[agent_type].calls) == 1
+
+
+
+class FailingAgent(FakeAgent):
+    def invoke(self, query: str, session_id: str) -> dict:
+        self.calls.append((query, session_id))
+        raise RuntimeError("temporary specialist failure")
+
+
+def test_collaboration_survives_one_specialist_failure():
+    agents = fake_agents()
+    agents["code"] = FailingAgent("code")
+    critic = FakeCritic()
+    router = MultiAgent(agents=agents, critic=critic)
+
+    result = router.invoke(
+        "Build a Python CNN image classification pipeline",
+        "session-456",
+    )
+
+    assert result["status"] == "completed"
+    assert result["content"] == "critic synthesis"
+
+    outcomes = {item["agent"]: item["status"] for item in critic.calls[0][1]}
+    assert outcomes["deep_learning"] == "completed"
+    assert outcomes["code"] == "error"
