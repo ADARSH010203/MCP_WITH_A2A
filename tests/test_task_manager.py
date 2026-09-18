@@ -50,6 +50,20 @@ class FakeStreamingAgent:
                 "mode": "multi-agent",
                 "agents": ["deep_learning", "code"],
             },
+            "collaboration_trace": {
+                "trace_id": "trace-1",
+                "started_at": "2026-09-18T00:00:00+00:00",
+                "duration_ms": 12.5,
+                "event_count": 1,
+                "events": [
+                    {
+                        "sequence": 1,
+                        "stage": "request_completed",
+                        "actor": "coordinator",
+                        "status": "completed",
+                    }
+                ],
+            },
         }
 
 
@@ -189,13 +203,9 @@ def test_streaming_retry_does_not_start_second_worker():
             "deep_learning",
             "code",
         ]
-        assert events[-1].result.metadata["collaboration_trace"] == {
-            "trace_id": "",
-            "started_at": "",
-            "duration_ms": 0,
-            "event_count": 0,
-            "events": [],
-        } or events[-1].result.metadata["collaboration_trace"]["trace_id"]
+        trace = events[-1].result.metadata["collaboration_trace"]
+        assert trace["trace_id"] == "trace-1"
+        assert trace["event_count"] == 1
         assert retry_events[-1].result is not None
         assert retry_events[-1].result.status.state == TaskState.COMPLETED
 
