@@ -16,6 +16,7 @@ from app.a2a.models import (
 from app.a2a.push_notification_auth import PushNotificationSenderAuth
 from app.a2a.server import A2AServer
 from app.a2a.task_manager import AgentTaskManager
+from app.a2a.task_store import SQLiteTaskStore
 from app.agents.code import CodeGeneratorAgent
 from app.agents.currency import CurrencyAgent
 from app.agents.deep_learning import DeepLearningAgent
@@ -98,7 +99,18 @@ def build_specialist_card(
     default=None,
     help="Public base URL used in the specialist Agent Card.",
 )
-def main(agent_type: str, host: str, port: int, public_url: str | None) -> None:
+@click.option(
+    "--task-db-path",
+    default=None,
+    help="SQLite task-store path. Defaults to a separate database per specialist.",
+)
+def main(
+    agent_type: str,
+    host: str,
+    port: int,
+    public_url: str | None,
+    task_db_path: str | None,
+) -> None:
     load_dotenv()
     if not settings.groq_api_key:
         raise click.ClickException("GROQ_API_KEY environment variable is not set.")
@@ -114,9 +126,11 @@ def main(agent_type: str, host: str, port: int, public_url: str | None) -> None:
         )
         notification_auth = PushNotificationSenderAuth()
         notification_auth.generate_jwk()
+        database_path = task_db_path or f".data/a2a_{agent_type}_tasks.db"
         task_manager = AgentTaskManager(
             agent=agent_class(),
             notification_sender_auth=notification_auth,
+            store=SQLiteTaskStore(database_path),
         )
         server = A2AServer(
             host=host,
