@@ -352,3 +352,43 @@ def test_critic_timeout_falls_back_to_successful_findings():
     assert result["status"] == "completed"
     assert result["critic_reviewed"] is False
     assert "deep_learning result" in result["content"]
+
+
+
+def test_collaboration_trace_contains_plan_handoff_and_critic():
+    agents = fake_agents()
+    critic = FakeCritic()
+    router = MultiAgent(agents=agents, critic=critic)
+
+    result = router.invoke(
+        "Design a game using Q-learning and implement it in Python",
+        "session-trace",
+    )
+
+    trace = result["collaboration_trace"]
+    assert trace["trace_id"]
+    assert trace["event_count"] >= 6
+
+    stages = [event["stage"] for event in trace["events"]]
+    assert stages[0] == "plan_created"
+    assert "specialist_started" in stages
+    assert "specialist_completed" in stages
+    assert "handoff" in stages
+    assert "critic_started" in stages
+    assert "critic_completed" in stages
+    assert stages[-1] == "request_completed"
+
+    assert trace["duration_ms"] >= 0
+    assert all(event["sequence"] > 0 for event in trace["events"])
+    assert any(event["actor"] == "code" for event in trace["events"])
+
+
+def test_single_agent_trace_is_available():
+    router = MultiAgent(fake_agents())
+
+    result = router.invoke("Explain binary search", "session-single-trace")
+
+    trace = result["collaboration_trace"]
+    assert trace["event_count"] >= 3
+    assert trace["events"][0]["stage"] == "plan_created"
+    assert trace["events"][-1]["stage"] == "request_completed"
