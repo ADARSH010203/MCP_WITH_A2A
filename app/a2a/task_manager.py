@@ -35,6 +35,60 @@ class AgentTaskManager(InMemoryTaskManager):
         super().__init__()
         self.agent = agent
         self.notification_sender_auth = notification_sender_auth
+        self.streaming_tasks: dict[str, asyncio.Task[None]] = {}
+
+
+    async def _get_existing_task(
+        self, request: SendTaskRequest | SendTaskStreamingRequest
+    ) -> Task | None:
+        task = await self.get_stored_task(request.params.id)
+        if task is None:
+            return None
+
+        existing_message = (task.history or [None])[0]
+        if (
+            task.sessionId != request.params.sessionId
+            or existing_message is None
+            or existing_message.model_dump() != request.params.message.model_dump()
+        ):
+            raise ValueError(
+                f"Task ID '{request.params.id}' is already used by a different request"
+            )
+        return task
+
+    @staticmethod
+    def _is_terminal(task: Task) -> bool:
+        return task.status.state in {
+            TaskState.INPUT_REQUIRED,
+            TaskState.COMPLETED,
+            TaskState.CANCELED,
+            TaskState.FAILED,
+        }
+
+    async def _start_streaming_task(self, request: SendTaskStreamingRequest) -> None:
+        task_id = request.params.id
+        try:
+            await self._run_streaming_agent(request)
+        finally:
+            self.streaming_tasks.pop(task_id, None)
+
+    async def _queue_current_task_state(
+        self, task: Task
+    ) -> asyncio.Queue:
+        queue = await self.setup_sse_consumer(task.id)
+        if task.artifacts:
+            for artifact in task.artifacts:
+                await queue.put(
+                    TaskArtifactUpdateEvent(id=task.id, artifact=artifact)
+                )
+        await queue.put(
+            TaskStatusUpdateEvent(
+                id=task.id,
+                status=task.status,
+                final=self._is_terminal(task),
+            )
+        )
+        return queue
 
     async def _run_streaming_agent(self, request: SendTaskStreamingRequest) -> None:
         task_send_params = request.params
@@ -144,6 +198,22 @@ class AgentTaskManager(InMemoryTaskManager):
         if validation_error:
             return SendTaskResponse(id=request.id, error=validation_error.error)
 
+        try:
+            existing_task = await self._get_existing_task(request)
+        except ValueError as exc:
+            return SendTaskResponse(
+                id=request.id,
+                error=InvalidParamsError(message=str(exc)),
+            )
+
+        if existing_task is not None:
+            return SendTaskResponse(
+                id=request.id,
+                result=self.append_task_history(
+                    existing_task, request.params.historyLength
+                ),
+            )
+
         await self.upsert_task(request.params)
 
         if request.params.pushNotification:
@@ -200,7 +270,9 @@ class AgentTaskManager(InMemoryTaskManager):
             return error
 
         try:
-            await self.upsert_task(request.params)
+            existing_task = await self._get_existing_task(request)
+            if existing_task is None:
+                await self.upsert_task(request.params)
             if request.params.pushNotification:
                 verified = await self.set_push_notification_info(
                     request.params.id, request.params.pushNotification
@@ -213,8 +285,14 @@ class AgentTaskManager(InMemoryTaskManager):
                         ),
                     )
 
-            queue = await self.setup_sse_consumer(request.params.id)
-            asyncio.create_task(self._run_streaming_agent(request))
+            if existing_task is not None and self._is_terminal(existing_task):
+                queue = await self._queue_current_task_state(existing_task)
+            else:
+                queue = await self.setup_sse_consumer(request.params.id)
+                if request.params.id not in self.streaming_tasks:
+                    self.streaming_tasks[request.params.id] = asyncio.create_task(
+                        self._start_streaming_task(request)
+                    )
             return self.dequeue_events_for_sse(request.id, request.params.id, queue)
         except Exception:
             logging.getLogger(__name__).exception(
