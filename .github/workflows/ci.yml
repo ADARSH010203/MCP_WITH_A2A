@@ -44,4 +44,4 @@ jobs:
         run: pytest -q --tb=short
 
       - name: Evaluate routing benchmark
-        run: python -m experiments.run_evaluation --min-routing-accuracy 1.0
+        run: python -m experiments.run_evaluation --min-routing-accuracy 1.0 --min-overall-accuracy 1.0
