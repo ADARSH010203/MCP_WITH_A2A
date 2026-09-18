@@ -35,8 +35,16 @@ class A2AClient:
         agent_card: AgentCard | None = None,
         url: str | None = None,
         api_key: str | None = None,
+        request_timeout_seconds: float | None = None,
     ):
         self.api_key = settings.a2a_api_key if api_key is None else api_key
+        self.request_timeout_seconds = (
+            settings.a2a_remote_request_timeout_seconds
+            if request_timeout_seconds is None
+            else request_timeout_seconds
+        )
+        if self.request_timeout_seconds <= 0:
+            raise ValueError("request_timeout_seconds must be positive")
         if agent_card is not None:
             self.url = agent_card.url
         elif url:
@@ -58,7 +66,12 @@ class A2AClient:
         self, payload: dict[str, Any]
     ) -> AsyncIterable[SendTaskStreamingResponse]:
         request = SendTaskStreamingRequest(params=payload)
-        timeout = httpx.Timeout(connect=10, read=None, write=10, pool=10)
+        timeout = httpx.Timeout(
+            connect=settings.a2a_remote_connect_timeout_seconds,
+            read=None,
+            write=self.request_timeout_seconds,
+            pool=self.request_timeout_seconds,
+        )
 
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
@@ -87,7 +100,14 @@ class A2AClient:
 
     async def _send_request(self, request: JSONRPCRequest) -> dict[str, Any]:
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(
+                    connect=settings.a2a_remote_connect_timeout_seconds,
+                    read=self.request_timeout_seconds,
+                    write=self.request_timeout_seconds,
+                    pool=self.request_timeout_seconds,
+                )
+            ) as client:
                 response = await client.post(
                     self.url,
                     json=request.model_dump(exclude_none=True),
