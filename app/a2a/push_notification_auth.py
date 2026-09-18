@@ -175,6 +175,11 @@ class PushNotificationReceiverAuth(PushNotificationAuth):
         self._jti_lock = threading.Lock()
 
     async def load_jwks(self, jwks_url: str) -> None:
+        parsed = urlparse(jwks_url)
+        if parsed.scheme != "https" or not parsed.hostname:
+            raise ValueError("JWKS URL must use HTTPS")
+        if parsed.username or parsed.password:
+            raise ValueError("JWKS URL must not contain embedded credentials")
         self.jwks_client = PyJWKClient(jwks_url)
 
     async def verify_push_notification(self, request: Request) -> bool:
@@ -209,6 +214,11 @@ class PushNotificationReceiverAuth(PushNotificationAuth):
             logger.warning("Push-notification token is from the future")
             return False
 
+        actual_body_sha256 = self._calculate_request_body_sha256(await request.json())
+        if actual_body_sha256 != decoded["request_body_sha256"]:
+            logger.warning("Push-notification body digest mismatch")
+            return False
+
         jti = str(decoded["jti"])
         with self._jti_lock:
             cutoff = now - TOKEN_MAX_AGE_SECONDS
@@ -219,10 +229,5 @@ class PushNotificationReceiverAuth(PushNotificationAuth):
                 logger.warning("Replay detected for push-notification token")
                 return False
             self._used_jti[jti] = now + TOKEN_MAX_AGE_SECONDS
-
-        actual_body_sha256 = self._calculate_request_body_sha256(await request.json())
-        if actual_body_sha256 != decoded["request_body_sha256"]:
-            logger.warning("Push-notification body digest mismatch")
-            return False
 
         return True
