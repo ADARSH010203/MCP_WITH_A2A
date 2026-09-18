@@ -85,6 +85,11 @@ class InMemoryTaskManager(TaskManager):
         self.task_sse_subscribers: dict[str, List[asyncio.Queue]] = {}
         self.subscriber_lock = asyncio.Lock()
 
+    async def get_stored_task(self, task_id: str) -> Task | None:
+        """Return a stored task without changing its state."""
+        async with self.lock:
+            return self.tasks.get(task_id)
+
     async def on_get_task(self, request: GetTaskRequest) -> GetTaskResponse:
         logger.info(f"Getting task {request.params.id}")
         task_query_params: TaskQueryParams = request.params
@@ -232,6 +237,8 @@ class InMemoryTaskManager(TaskManager):
             task.status = status
 
             if status.message is not None:
+                if task.history is None:
+                    task.history = []
                 task.history.append(status.message)
 
             if artifacts is not None:
@@ -243,8 +250,9 @@ class InMemoryTaskManager(TaskManager):
 
     def append_task_history(self, task: Task, historyLength: int | None):
         new_task = task.model_copy()
+        history = new_task.history or []
         if historyLength is not None and historyLength > 0:
-            new_task.history = new_task.history[-historyLength:]
+            new_task.history = history[-historyLength:]
         else:
             new_task.history = []
 
