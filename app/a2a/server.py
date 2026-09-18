@@ -1,5 +1,6 @@
 """FastAPI implementation of the A2A JSON-RPC endpoint."""
 
+import asyncio
 import json
 import logging
 import time
@@ -52,7 +53,7 @@ class A2AServer:
         self.endpoint = endpoint
         self.agent_card = agent_card
         self.task_manager = task_manager
-        self._rate_limit_lock = __import__("asyncio").Lock()
+        self._rate_limit_lock = asyncio.Lock()
         self._request_timestamps: dict[str, deque[float]] = defaultdict(deque)
 
         self.app = FastAPI(
