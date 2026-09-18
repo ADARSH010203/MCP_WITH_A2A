@@ -171,15 +171,16 @@ ruff check app host frontend scripts tests
 ## Security and Reliability
 
 - API credentials are loaded from environment variables and should never be committed.
+- The A2A endpoint supports optional bearer authentication through `A2A_API_KEY`.
+- The A2A endpoint applies a per-client rate limit and a maximum concurrent agent execution limit; these controls are process-local.
+- Task input is validated for empty messages and has a configurable character limit.
 - The A2A client uses request timeouts and validates JSON responses.
-- Push-notification URLs are verified before notification configuration is stored.
-- Push notifications are signed with RSA-based JWTs and include a request-body digest.
-- A2A task state is persisted locally in SQLite by default, while live streaming subscribers remain process-local.
-- The router is deterministic and uses word-boundary matching for single-word keywords to reduce accidental matches.
+- Streaming uses asynchronous agent and SSE paths to avoid blocking the event loop.
+- Push-notification callback URLs require HTTPS by default and private/loopback destinations are blocked.
+- Push notification JWTs are RSA-signed, include a request-body digest and unique token ID, and receivers reject reused tokens within the validity window.
+- A2A task state is persisted locally in SQLite by default, while live streaming subscribers and active workers remain process-local.
 - Duplicate task IDs are idempotent; reusing an ID for a different session or message is rejected.
 - Streaming tasks can be canceled while their worker is active.
-- Push-notification callback URLs require HTTPS by default and private/loopback destinations are blocked.
-- Push notification JWTs include a unique ID and body digest; receivers reject reused tokens within the validity window.
 - Currency rates come from a daily reference-rate provider; they are not suitable for live trading or guaranteed settlement prices.
 
 ## Limitations
