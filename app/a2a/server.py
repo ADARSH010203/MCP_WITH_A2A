@@ -2,6 +2,8 @@
 
 import json
 import logging
+import time
+from collections import defaultdict, deque
 from collections.abc import AsyncIterable
 from typing import Any
 
@@ -21,6 +23,7 @@ from app.a2a.models import (
     GetTaskRequest,
     InternalError,
     InvalidRequestError,
+    RateLimitError,
     JSONParseError,
     JSONRPCResponse,
     SendTaskRequest,
@@ -49,6 +52,8 @@ class A2AServer:
         self.endpoint = endpoint
         self.agent_card = agent_card
         self.task_manager = task_manager
+        self._rate_limit_lock = __import__("asyncio").Lock()
+        self._request_timestamps: dict[str, deque[float]] = defaultdict(deque)
 
         self.app = FastAPI(
             title="A2A Server",
@@ -84,10 +89,41 @@ class A2AServer:
             raise RuntimeError("Agent card is not configured")
         return JSONResponse(self.agent_card.model_dump(exclude_none=True))
 
+    async def _is_rate_limited(self, request: Request) -> bool:
+        limit = settings.a2a_rate_limit_per_minute
+        if limit <= 0:
+            return False
+
+        client_host = request.client.host if request.client else "unknown"
+        now = time.monotonic()
+        cutoff = now - 60
+
+        async with self._rate_limit_lock:
+            timestamps = self._request_timestamps[client_host]
+            while timestamps and timestamps[0] <= cutoff:
+                timestamps.popleft()
+
+            if len(timestamps) >= limit:
+                return True
+
+            timestamps.append(now)
+            return False
+
     async def _process_request(
         self, request: Request
     ) -> JSONResponse | EventSourceResponse:
         try:
+            if await self._is_rate_limited(request):
+                return JSONResponse(
+                    JSONRPCResponse(
+                        id=None,
+                        error=RateLimitError(),
+                    ).model_dump(exclude_none=True),
+                    status_code=429,
+                    headers={"Retry-After": "60"},
+                )
+
+            if settings.a2a_api_key:
             if settings.a2a_api_key:
                 authorization = request.headers.get("Authorization", "")
                 expected = f"Bearer {settings.a2a_api_key}"
