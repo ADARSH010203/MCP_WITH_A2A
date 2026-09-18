@@ -6,7 +6,13 @@ import os
 import click
 from dotenv import load_dotenv
 
-from app.a2a.models import AgentCapabilities, AgentCard, AgentSkill, MissingAPIKeyError
+from app.a2a.models import (
+    AgentAuthentication,
+    AgentCapabilities,
+    AgentCard,
+    AgentSkill,
+    MissingAPIKeyError,
+)
 from app.a2a.push_notification_auth import PushNotificationSenderAuth
 from app.a2a.server import A2AServer
 from app.a2a.task_manager import AgentTaskManager
@@ -87,6 +93,11 @@ def build_agent_card(host: str, port: int) -> AgentCard:
         defaultInputModes=["text"],
         defaultOutputModes=["text", "text/plain"],
         capabilities=AgentCapabilities(streaming=True, pushNotifications=True),
+        authentication=(
+            AgentAuthentication(schemes=["bearer"])
+            if settings.a2a_api_key
+            else None
+        ),
         skills=skills,
     )
 
