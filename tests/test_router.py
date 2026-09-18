@@ -1,21 +1,41 @@
+from app.a2a.models import Message
 from app.routing.router import MultiAgent
 
 
 class FakeAgent:
-    def invoke(self, query, session_id):
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def invoke(self, query: str, session_id: str) -> dict:
         return {"agent": self.name, "content": query, "require_user_input": False}
 
-    async def stream(self, query, session_id):
-        yield {"agent": self.name, "content": query, "is_task_complete": True, "require_user_input": False}
+    async def stream(self, query: str, session_id: str):
+        yield {
+            "agent": self.name,
+            "content": query,
+            "is_task_complete": True,
+            "require_user_input": False,
+        }
 
 
 def fake_agents():
-    agents = {}
-    for name in ("currency", "email", "code", "image", "game", "deep_learning", "reinforcement", "dsa"):
-        agent = FakeAgent()
-        agent.name = name
-        agents[name] = agent
-    return agents
+    return {
+        name: FakeAgent(name)
+        for name in (
+            "currency",
+            "email",
+            "code",
+            "image",
+            "game",
+            "deep_learning",
+            "reinforcement",
+            "dsa",
+        )
+    }
+
+
+def router_message(text: str) -> Message:
+    return Message(role="user", parts=[{"type": "text", "text": text}])
 
 
 def test_routes_currency():
@@ -30,7 +50,9 @@ def test_routes_reinforcement_learning():
 
 def test_routes_dsa():
     router = MultiAgent(fake_agents())
-    assert router._detect_agent_type(router_message("Solve this dynamic programming problem")) == "dsa"
+    assert router._detect_agent_type(
+        router_message("Solve this dynamic programming problem")
+    ) == "dsa"
 
 
 def test_falls_back_to_code():
@@ -38,6 +60,16 @@ def test_falls_back_to_code():
     assert router._detect_agent_type(router_message("Build a Python function")) == "code"
 
 
-def router_message(text):
-    from app.a2a.models import Message
-    return Message(role="user", parts=[{"type": "text", "text": text}])
+def test_empty_injected_agents_are_preserved():
+    router = MultiAgent(agents={})
+    assert router.agents == {}
+    assert set(router.agent_factories) == {
+        "currency",
+        "email",
+        "code",
+        "image",
+        "game",
+        "deep_learning",
+        "reinforcement",
+        "dsa",
+    }
