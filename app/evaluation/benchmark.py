@@ -4,8 +4,6 @@ import json
 import time
 from pathlib import Path
 from statistics import mean
-from typing import Any
-
 from app.evaluation.models import BenchmarkCase, BenchmarkReport, BenchmarkResult
 from app.routing.router import MultiAgent
 
