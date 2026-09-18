@@ -38,58 +38,6 @@ class AgentTaskManager(InMemoryTaskManager):
         self.streaming_tasks: dict[str, asyncio.Task[None]] = {}
 
 
-    async def _get_existing_task(
-        self, request: SendTaskRequest | SendTaskStreamingRequest
-    ) -> Task | None:
-        task = await self.get_stored_task(request.params.id)
-        if task is None:
-            return None
-
-        existing_message = (task.history or [None])[0]
-        if (
-            task.sessionId != request.params.sessionId
-            or existing_message is None
-            or existing_message.model_dump() != request.params.message.model_dump()
-        ):
-            raise ValueError(
-                f"Task ID '{request.params.id}' is already used by a different request"
-            )
-        return task
-
-    @staticmethod
-    def _is_terminal(task: Task) -> bool:
-        return task.status.state in {
-            TaskState.INPUT_REQUIRED,
-            TaskState.COMPLETED,
-            TaskState.CANCELED,
-            TaskState.FAILED,
-        }
-
-    async def _start_streaming_task(self, request: SendTaskStreamingRequest) -> None:
-        task_id = request.params.id
-        try:
-            await self._run_streaming_agent(request)
-        finally:
-            self.streaming_tasks.pop(task_id, None)
-
-    async def _queue_current_task_state(
-        self, task: Task
-    ) -> asyncio.Queue:
-        queue = await self.setup_sse_consumer(task.id)
-        if task.artifacts:
-            for artifact in task.artifacts:
-                await queue.put(
-                    TaskArtifactUpdateEvent(id=task.id, artifact=artifact)
-                )
-        await queue.put(
-            TaskStatusUpdateEvent(
-                id=task.id,
-                status=task.status,
-                final=self._is_terminal(task),
-            )
-        )
-        return queue
-
     async def _run_streaming_agent(self, request: SendTaskStreamingRequest) -> None:
         task_send_params = request.params
         query = self._get_user_query(task_send_params)
@@ -199,22 +147,20 @@ class AgentTaskManager(InMemoryTaskManager):
             return SendTaskResponse(id=request.id, error=validation_error.error)
 
         try:
-            existing_task = await self._get_existing_task(request)
+            existing_task, created = await self.get_or_create_task(request.params)
         except ValueError as exc:
             return SendTaskResponse(
                 id=request.id,
                 error=InvalidParamsError(message=str(exc)),
             )
 
-        if existing_task is not None:
+        if not created:
             return SendTaskResponse(
                 id=request.id,
                 result=self.append_task_history(
                     existing_task, request.params.historyLength
                 ),
             )
-
-        await self.upsert_task(request.params)
 
         if request.params.pushNotification:
             verified = await self.set_push_notification_info(
@@ -270,9 +216,7 @@ class AgentTaskManager(InMemoryTaskManager):
             return error
 
         try:
-            existing_task = await self._get_existing_task(request)
-            if existing_task is None:
-                await self.upsert_task(request.params)
+            existing_task, created = await self.get_or_create_task(request.params)
             if request.params.pushNotification:
                 verified = await self.set_push_notification_info(
                     request.params.id, request.params.pushNotification
@@ -285,7 +229,7 @@ class AgentTaskManager(InMemoryTaskManager):
                         ),
                     )
 
-            if existing_task is not None and self._is_terminal(existing_task):
+            if not created and self._is_terminal(existing_task):
                 queue = await self._queue_current_task_state(existing_task)
             else:
                 queue = await self.setup_sse_consumer(request.params.id)
