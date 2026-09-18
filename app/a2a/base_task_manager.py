@@ -34,7 +34,9 @@ from app.a2a.models import (
     TaskStatus,
     TaskStatusUpdateEvent,
 )
+from app.a2a.task_store import SQLiteTaskStore
 from app.a2a.utils import new_not_implemented_error
+from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -78,9 +80,12 @@ class TaskManager(ABC):
 
 
 class InMemoryTaskManager(TaskManager):
-    def __init__(self):
-        self.tasks: dict[str, Task] = {}
-        self.push_notification_infos: dict[str, PushNotificationConfig] = {}
+    def __init__(self, store: SQLiteTaskStore | None = None):
+        self.store = store or SQLiteTaskStore(settings.a2a_task_db_path)
+        self.tasks: dict[str, Task] = self.store.load_tasks()
+        self.push_notification_infos: dict[str, PushNotificationConfig] = (
+            self.store.load_push_notification_configs()
+        )
         self.lock = asyncio.Lock()
         self.task_sse_subscribers: dict[str, List[asyncio.Queue]] = {}
         self.subscriber_lock = asyncio.Lock()
@@ -135,6 +140,7 @@ class InMemoryTaskManager(TaskManager):
                 raise ValueError(f"Task not found for {task_id}")
 
             self.push_notification_infos[task_id] = notification_config
+            self.store.save_push_notification_config(task_id, notification_config)
 
         return
 
@@ -232,6 +238,7 @@ class InMemoryTaskManager(TaskManager):
                 history=[task_send_params.message],
             )
             self.tasks[task_send_params.id] = task
+            self.store.save_task(task)
             return task, True
 
     async def upsert_task(self, task_send_params: TaskSendParams) -> Task:
@@ -266,6 +273,7 @@ class InMemoryTaskManager(TaskManager):
                     task.artifacts = []
                 task.artifacts.extend(artifacts)
 
+            self.store.save_task(task)
             return task
 
     def append_task_history(self, task: Task, historyLength: int | None):
