@@ -92,6 +92,21 @@ class Settings:
         20000,
         minimum=1,
     )
+    a2a_max_request_body_bytes: int = _env_int(
+        "A2A_MAX_REQUEST_BODY_BYTES",
+        1_000_000,
+        minimum=1024,
+    )
+    a2a_max_task_id_chars: int = _env_int(
+        "A2A_MAX_TASK_ID_CHARS",
+        128,
+        minimum=1,
+    )
+    a2a_max_session_id_chars: int = _env_int(
+        "A2A_MAX_SESSION_ID_CHARS",
+        128,
+        minimum=1,
+    )
     a2a_task_retention_days: int = _env_int(
         "A2A_TASK_RETENTION_DAYS",
         30,

@@ -3,12 +3,14 @@
 import asyncio
 import json
 import logging
+import secrets
 import time
 from collections import defaultdict, deque
 from collections.abc import AsyncIterable
 from typing import Any
 
 from fastapi import FastAPI, Request
+from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from sse_starlette.sse import EventSourceResponse
@@ -31,6 +33,17 @@ from app.a2a.models import (
     TaskResubscriptionRequest,
 )
 from app.config.settings import settings
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add conservative headers for the JSON-RPC and SSE surface."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        return response
 
 
 class A2AServer:
@@ -61,6 +74,7 @@ class A2AServer:
             description="A2A Protocol JSON-RPC API",
             version="1.0.0",
         )
+        self.app.add_middleware(SecurityHeadersMiddleware)
         self.app.add_api_route(
             self.endpoint,
             self._process_request,
@@ -149,8 +163,12 @@ class A2AServer:
         try:
             if settings.a2a_api_key:
                 authorization = request.headers.get("Authorization", "")
-                expected = f"Bearer {settings.a2a_api_key}"
-                if authorization != expected:
+                presented = (
+                    authorization[len("Bearer ") :]
+                    if authorization.startswith("Bearer ")
+                    else ""
+                )
+                if not secrets.compare_digest(presented, settings.a2a_api_key):
                     return JSONResponse(
                         JSONRPCResponse(
                             id=None,
@@ -169,7 +187,45 @@ class A2AServer:
                     headers={"Retry-After": "60"},
                 )
 
-            body = await request.json()
+            content_length = request.headers.get("content-length")
+            if content_length is not None:
+                try:
+                    if int(content_length) > settings.a2a_max_request_body_bytes:
+                        return JSONResponse(
+                            JSONRPCResponse(
+                                id=None,
+                                error=InvalidRequestError(
+                                    message="Request body exceeds the configured size limit"
+                                ),
+                            ).model_dump(exclude_none=True),
+                            status_code=413,
+                        )
+                except ValueError:
+                    return JSONResponse(
+                        JSONRPCResponse(
+                            id=None,
+                            error=InvalidRequestError(message="Invalid Content-Length header"),
+                        ).model_dump(exclude_none=True),
+                        status_code=400,
+                    )
+
+            body_bytes = await request.body()
+            if len(body_bytes) > settings.a2a_max_request_body_bytes:
+                return JSONResponse(
+                    JSONRPCResponse(
+                        id=None,
+                        error=InvalidRequestError(
+                            message="Request body exceeds the configured size limit"
+                        ),
+                    ).model_dump(exclude_none=True),
+                    status_code=413,
+                )
+
+            try:
+                body = json.loads(body_bytes)
+            except json.JSONDecodeError:
+                raise
+
             rpc_request = A2ARequest.validate_python(body)
 
             if self.task_manager is None:
