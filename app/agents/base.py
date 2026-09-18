@@ -13,9 +13,6 @@ from app.config.constants import SUPPORTED_CONTENT_TYPES
 from app.config.settings import settings
 
 
-_MEMORY = MemorySaver()
-
-
 class ResponseFormat(BaseModel):
     status: Literal["input_required", "completed", "error"] = "input_required"
     message: str
@@ -28,10 +25,11 @@ class BaseAgent:
 
     def __init__(self) -> None:
         self.model = ChatGroq(model=settings.groq_model, max_tokens=2048)
+        self.memory = MemorySaver()
         self.graph = create_react_agent(
             self.model,
             tools=[],
-            checkpointer=_MEMORY,
+            checkpointer=self.memory,
             prompt=self.SYSTEM_INSTRUCTION,
             response_format=ResponseFormat,
         )
