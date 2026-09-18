@@ -50,6 +50,7 @@ class Settings:
     )
     mcp_url: str = os.getenv("MCP_URL", "http://127.0.0.1:3000/sse")
     a2a_public_url: str = os.getenv("A2A_PUBLIC_URL", "")
+    a2a_specialist_urls: dict[str, str] = None  # populated after class definition
     currency_api_url: str = os.getenv(
         "CURRENCY_API_URL",
         "https://api.frankfurter.dev/v2",
@@ -111,4 +112,37 @@ class Settings:
     )
 
 
+def _load_specialist_urls() -> dict[str, str]:
+    raw = os.getenv("A2A_SPECIALIST_URLS", "")
+    if not raw.strip():
+        return {}
+
+    from urllib.parse import urlparse
+
+    result: dict[str, str] = {}
+    for entry in raw.split(";"):
+        item = entry.strip()
+        if not item:
+            continue
+        if "=" not in item:
+            raise ValueError(
+                "A2A_SPECIALIST_URLS entries must use agent_type=url format"
+            )
+
+        agent_type, url = (part.strip() for part in item.split("=", 1))
+        parsed = urlparse(url)
+        if not agent_type or parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError(
+                "A2A_SPECIALIST_URLS contains an invalid agent_type or URL"
+            )
+        if parsed.username or parsed.password:
+            raise ValueError(
+                "A2A_SPECIALIST_URLS URLs must not contain embedded credentials"
+            )
+        result[agent_type] = url.rstrip("/")
+
+    return result
+
+
 settings = Settings()
+object.__setattr__(settings, "a2a_specialist_urls", _load_specialist_urls())
