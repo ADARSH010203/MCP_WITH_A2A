@@ -15,9 +15,6 @@ from pydantic import BaseModel
 from app.config.settings import settings
 
 
-_MEMORY = MemorySaver()
-
-
 def _fetch_mcp_tools_sync() -> list[Any]:
     """Fetch MCP tools from a sync context, including an active event-loop context."""
 
@@ -76,10 +73,11 @@ class CurrencyAgent:
     def __init__(self) -> None:
         self.tools = _fetch_mcp_tools_sync()
         self.model = ChatGroq(model=settings.groq_model, max_tokens=2048)
+        self.memory = MemorySaver()
         self.graph = create_react_agent(
             self.model,
             tools=self.tools,
-            checkpointer=_MEMORY,
+            checkpointer=self.memory,
             prompt=self.SYSTEM_INSTRUCTION,
             response_format=ResponseFormat,
         )
