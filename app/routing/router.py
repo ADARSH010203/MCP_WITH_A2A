@@ -744,16 +744,6 @@ class MultiAgent:
         agent_types = list(plan.agents)
         handoff_targets = plan.handoffs
         budget = CallBudget(self.max_agent_calls_per_task)
-        trace.record(
-            "plan_created",
-            "planner",
-            "completed",
-            details={
-                "mode": plan.mode,
-                "agents": list(plan.agents),
-                "handoffs": plan.to_dict()["handoffs"],
-            },
-        )
         lead_types = [
             step.agent
             for step in plan.steps
@@ -953,17 +943,22 @@ class MultiAgent:
                 query,
                 session_id,
                 budget,
+                trace,
             ):
                 response.setdefault("agents_used", [agent_type])
                 response.setdefault("collaboration_mode", "single-agent")
                 response.setdefault("critic_reviewed", False)
                 response.setdefault("collaboration_plan", plan.to_dict())
-                trace.record(
-                    "request_completed",
-                    "coordinator",
-                    str(response.get("status", "completed")),
-                    (time.perf_counter() - started) * 1000,
-                )
+                if (
+                    response.get("is_task_complete")
+                    or response.get("status") in {"error", "timeout", "budget_exceeded"}
+                ):
+                    trace.record(
+                        "request_completed",
+                        "coordinator",
+                        str(response.get("status", "completed")),
+                        (time.perf_counter() - started) * 1000,
+                    )
                 response["collaboration_trace"] = trace.snapshot()
                 yield response
             return
@@ -999,6 +994,7 @@ class MultiAgent:
                     session_id,
                     None,
                     budget,
+                    trace,
                 )
             )
             for agent_type in lead_types
@@ -1030,6 +1026,7 @@ class MultiAgent:
                     "agents_used": agent_types,
                     "collaboration_mode": "multi-agent",
                     "collaboration_plan": plan.to_dict(),
+                    "collaboration_trace": trace.snapshot(),
                 }
 
         for target in handoff_targets:
@@ -1078,6 +1075,7 @@ class MultiAgent:
                 "agents_used": agent_types,
                 "collaboration_mode": "multi-agent",
                 "collaboration_plan": plan.to_dict(),
+                "collaboration_trace": trace.snapshot(),
             }
 
         yield {
@@ -1088,6 +1086,7 @@ class MultiAgent:
             "agents_used": agent_types,
             "collaboration_mode": "multi-agent",
             "collaboration_plan": plan.to_dict(),
+            "collaboration_trace": trace.snapshot(),
         }
 
         synthesis = await asyncio.to_thread(
@@ -1108,6 +1107,12 @@ class MultiAgent:
                 f"{item['agent']}: {item['content']}"
                 for item in successful
             )
+            trace.record(
+                "request_completed",
+                "coordinator",
+                "completed" if successful else "error",
+                (time.perf_counter() - started) * 1000,
+            )
             yield {
                 "is_task_complete": bool(successful),
                 "require_user_input": False,
@@ -1126,6 +1131,13 @@ class MultiAgent:
                 "collaboration_trace": trace.snapshot(),
             }
             return
+
+        trace.record(
+            "request_completed",
+            "coordinator",
+            str(synthesis.get("status", "error")),
+            (time.perf_counter() - started) * 1000,
+        )
 
         yield {
             "is_task_complete": synthesis.get("status") == "completed",
