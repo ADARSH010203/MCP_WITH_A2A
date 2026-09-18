@@ -200,3 +200,32 @@ def test_three_agent_pipeline_handoffs_domain_findings_to_code():
     assert "game" in code_query
     assert "reinforcement result" in code_query
     assert "game result" in code_query
+
+
+
+class InputRequiredAgent(FakeAgent):
+    def invoke(self, query: str, session_id: str) -> dict:
+        self.calls.append((query, session_id))
+        return {
+            "status": "input_required",
+            "content": "Need deployment target.",
+        }
+
+
+def test_collaboration_surfaces_required_input_when_all_specialists_need_it():
+    agents = fake_agents()
+    agents["deep_learning"] = InputRequiredAgent("deep_learning")
+    agents["code"] = InputRequiredAgent("code")
+
+    result = MultiAgent(
+        agents=agents,
+        critic=FakeCritic(),
+    ).invoke(
+        "Build a Python CNN deployment system",
+        "session-input",
+    )
+
+    assert result["status"] == "input_required"
+    assert result["require_user_input"] is True
+    assert "deep_learning" in result["content"]
+    assert "code" in result["content"]
