@@ -2,7 +2,7 @@
 
 A modular Python multi-agent system that combines **Agent-to-Agent (A2A)** communication with the **Model Context Protocol (MCP)**.
 
-The system accepts a user request, routes it to a specialized agent, and uses MCP when a request needs an external tool. The current MCP example is a deterministic currency exchange-rate tool.
+The system accepts a user request, routes it to a specialized agent, and uses MCP when a request needs an external tool. The current MCP example uses a daily reference-rate currency provider through an MCP tool.
 
 ## Architecture
 
@@ -180,12 +180,12 @@ ruff check app host frontend scripts tests
 - Streaming tasks can be canceled while their worker is active.
 - Push-notification callback URLs require HTTPS by default and private/loopback destinations are blocked.
 - Push notification JWTs include a unique ID and body digest; receivers reject reused tokens within the validity window.
-- The currency tool is deliberately non-live and should not be used for financial decisions.
+- Currency rates come from a daily reference-rate provider; they are not suitable for live trading or guaranteed settlement prices.
 
 ## Limitations
 
-- The currency rate is a fixed demonstration value, not a live market rate.
-- Agent routing is keyword-based, so ambiguous requests may be routed to the fallback code agent.
+- Currency rates are external daily reference rates and depend on provider availability.
+- Agent routing is keyword-based, so ambiguous requests may still be misrouted or fall back to the code agent.
 - SQLite persistence protects task records across a single server restart, but it does not provide distributed task state across multiple server processes.
 - Live SSE subscriptions and running workers are still process-local; an active task cannot be resumed automatically after a server restart.
 - Agent conversation memory is still in-process via LangGraph's memory checkpointer.
