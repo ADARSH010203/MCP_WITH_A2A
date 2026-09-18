@@ -418,3 +418,28 @@ def test_streaming_multi_agent_trace_reaches_final_event():
     import asyncio
 
     asyncio.run(scenario())
+
+
+def test_capability_registry_prefers_specialized_trigger():
+    router = MultiAgent(fake_agents())
+
+    selected = router.select_agent_types(
+        "Design an image classification model"
+    )
+
+    assert selected[0] == "deep_learning"
+
+
+def test_router_plan_exposes_generic_dependency_groups():
+    router = MultiAgent(fake_agents())
+
+    plan = router.build_collaboration_plan(
+        "Design a game using Q-learning and implement it in Python"
+    )
+
+    steps = {step.agent: step for step in plan.steps}
+    assert steps["reinforcement"].depends_on == ()
+    assert steps["game"].depends_on == ()
+    assert steps["code"].depends_on == ("reinforcement", "game")
+    assert steps["reinforcement"].parallel_group == steps["game"].parallel_group == 1
+    assert steps["code"].parallel_group == 2
