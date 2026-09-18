@@ -1,5 +1,5 @@
 import uuid
-from typing import List, Optional
+from typing import Any
 
 import requests
 import typer
@@ -7,7 +7,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import tool
 from langchain_groq import ChatGroq
 
-from app.a2a.models import AgentCard, AgentCapabilities, TaskState
+from app.a2a.models import AgentCard, TaskState
 from app.config.settings import settings
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -19,7 +19,7 @@ class RemoteAgentClient:
 
     def __init__(self, base_url: str):
         self.base_url = base_url
-        self.agent_card: Optional[AgentCard] = None
+        self.agent_card: AgentCard | None = None
 
     def fetch_agent_card(self) -> AgentCard:
         """Fetch and validate the remote agent's A2A Agent Card."""
@@ -35,7 +35,7 @@ class RemoteAgentClient:
         self.agent_card = card
         return card
 
-    def send_task(self, task_id: str, session_id: str, message_text: str) -> dict:
+    def send_task(self, task_id: str, session_id: str, message_text: str) -> dict[str, Any]:
         """POST / with JSON-RPC request: method=tasks/send."""
         payload = {
             "jsonrpc": "2.0",
@@ -62,7 +62,7 @@ class RemoteAgentClient:
 class HostAgent:
     """Holds references to multiple RemoteAgentClients for one host session."""
 
-    def __init__(self, remote_addresses: List[str]):
+    def __init__(self, remote_addresses: list[str]):
         self.clients = {}
         self.session_id = f"host-{uuid.uuid4().hex}"
         self.initialization_errors: dict[str, str] = {}
@@ -96,7 +96,7 @@ class HostAgent:
             )
         return infos
 
-    def get_client_by_name(self, agent_name: str) -> Optional[RemoteAgentClient]:
+    def get_client_by_name(self, agent_name: str) -> RemoteAgentClient | None:
         """Find a client whose AgentCard name matches `agent_name`."""
         for c in self.clients.values():
             if c.agent_card and c.agent_card.name == agent_name:
