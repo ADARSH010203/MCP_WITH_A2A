@@ -186,6 +186,12 @@ A2A_REMOTE_REQUEST_TIMEOUT_SECONDS=55
 
 Never commit a real API key.
 
+### Professional documentation site
+
+A static documentation and demo site is included under `docs/`. It presents the real project architecture, specialist agents, A2A/MCP boundaries, collaboration tracing, evaluation metrics, and a small browser-based A2A request playground.
+
+Open `docs/index.html` directly for a local preview, or publish the `docs/` directory with GitHub Pages for a public project site. The browser playground can call a running A2A server when the server is configured to allow the page's origin through CORS.
+
 ## Run the MCP Server
 
 Start MCP first:
