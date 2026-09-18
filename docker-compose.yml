@@ -1,0 +1,51 @@
+services:
+  mcp:
+    build: .
+    command: ["python", "-m", "scripts.run_mcp_server"]
+    expose:
+      - "3000"
+    restart: unless-stopped
+
+  a2a:
+    build: .
+    command:
+      [
+        "python",
+        "-m",
+        "scripts.run_a2a_server",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000"
+      ]
+    ports:
+      - "8000:8000"
+    environment:
+      GROQ_API_KEY: ${GROQ_API_KEY}
+      GROQ_MODEL: ${GROQ_MODEL:-meta-llama/llama-4-scout-17b-16e-instruct}
+      MCP_URL: http://mcp:3000/sse
+      A2A_PUBLIC_URL: ${A2A_PUBLIC_URL:-http://localhost:8000}
+      A2A_API_KEY: ${A2A_API_KEY:-}
+      A2A_CORS_ORIGINS: ${A2A_CORS_ORIGINS:-}
+      A2A_TASK_DB_PATH: /app/.data/a2a_tasks.db
+      A2A_MEMORY_DB_PATH: /app/.data/a2a_memory.db
+    volumes:
+      - a2a_data:/app/.data
+    depends_on:
+      - mcp
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3).read()"
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 25s
+      retries: 3
+
+volumes:
+  a2a_data:
