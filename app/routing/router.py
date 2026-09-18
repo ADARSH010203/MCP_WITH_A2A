@@ -62,13 +62,6 @@ class MultiAgent:
     ROUTES = AGENT_REGISTRY.as_routes()
     TASK_FOCUS = AGENT_REGISTRY.task_focus_map()
     HANDOFF_TARGETS = AGENT_REGISTRY.dependency_map()
-    PRIORITY_PHRASES: tuple[tuple[str, str], ...] = (
-        ("deep_learning", "graph neural network"),
-        ("deep_learning", "image classification"),
-        ("reinforcement", "deep reinforcement learning"),
-        ("dsa", "graph algorithm"),
-        ("dsa", "graph traversal"),
-    )
     COLLABORATION_KEYWORDS: tuple[str, ...] = (
         "build",
         "design",
