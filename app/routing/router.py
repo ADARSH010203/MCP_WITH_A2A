@@ -2,6 +2,7 @@
 
 import asyncio
 import re
+import threading
 from collections.abc import AsyncIterable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Protocol
@@ -184,6 +185,7 @@ class MultiAgent:
         )
         self.critic = critic
         self.critic_factory = critic_factory
+        self._agent_lock = threading.Lock()
 
     @staticmethod
     def _normalize(text: str) -> str:
@@ -252,17 +254,18 @@ class MultiAgent:
         return selected[:1]
 
     def _get_agent(self, agent_type: str) -> Agent:
-        existing_agent = self.agents.get(agent_type)
-        if existing_agent is not None:
-            return existing_agent
+        with self._agent_lock:
+            existing_agent = self.agents.get(agent_type)
+            if existing_agent is not None:
+                return existing_agent
 
-        factory = self.agent_factories.get(agent_type)
-        if factory is None:
-            raise ValueError(f"Unsupported agent type: {agent_type}")
+            factory = self.agent_factories.get(agent_type)
+            if factory is None:
+                raise ValueError(f"Unsupported agent type: {agent_type}")
 
-        agent = factory()
-        self.agents[agent_type] = agent
-        return agent
+            agent = factory()
+            self.agents[agent_type] = agent
+            return agent
 
     def _get_critic(self) -> CriticAgent:
         if self.critic is None:
