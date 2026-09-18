@@ -5,16 +5,36 @@ from app.routing.router import MultiAgent
 class FakeAgent:
     def __init__(self, name: str) -> None:
         self.name = name
+        self.calls = []
 
     def invoke(self, query: str, session_id: str) -> dict:
-        return {"agent": self.name, "content": query, "require_user_input": False}
+        self.calls.append((query, session_id))
+        return {
+            "status": "completed",
+            "agent": self.name,
+            "content": f"{self.name} result",
+        }
 
     async def stream(self, query: str, session_id: str):
         yield {
+            "status": "completed",
             "agent": self.name,
-            "content": query,
+            "content": f"{self.name} result",
             "is_task_complete": True,
             "require_user_input": False,
+        }
+
+
+class FakeCritic:
+    def __init__(self):
+        self.calls = []
+
+    def synthesize(self, query: str, contributions: list[dict]) -> dict:
+        self.calls.append((query, contributions))
+        return {
+            "status": "completed",
+            "content": "critic synthesis",
+            "verified": True,
         }
 
 
@@ -63,13 +83,6 @@ def test_routes_all_specialists():
         assert router._detect_agent_type(router_message(query)) == expected
 
 
-def test_routes_dsa():
-    router = MultiAgent(fake_agents())
-    assert router._detect_agent_type(
-        router_message("Solve this dynamic programming problem")
-    ) == "dsa"
-
-
 def test_prefers_deep_learning_for_transformer_architecture():
     router = MultiAgent(fake_agents())
     assert (
@@ -98,3 +111,41 @@ def test_empty_injected_agents_are_preserved():
         "reinforcement",
         "dsa",
     }
+
+
+def test_selects_multiple_agents_for_cross_domain_request():
+    router = MultiAgent(fake_agents())
+    selected = router.select_agent_types(
+        "Build a Python CNN image classification pipeline"
+    )
+    assert "deep_learning" in selected
+    assert "code" in selected
+    assert len(selected) <= 3
+
+
+def test_keeps_simple_request_single_agent():
+    router = MultiAgent(fake_agents())
+    assert router.select_agent_types("Explain binary search") == ["dsa"]
+
+
+def test_collaboration_runs_specialists_and_critic():
+    agents = fake_agents()
+    critic = FakeCritic()
+    router = MultiAgent(agents=agents, critic=critic)
+
+    result = router.invoke(
+        "Build a Python CNN image classification pipeline",
+        "session-123",
+    )
+
+    assert result["status"] == "completed"
+    assert result["content"] == "critic synthesis"
+    assert result["verified"] is True
+    assert len(critic.calls) == 1
+
+    used_agents = [item["agent"] for item in critic.calls[0][1]]
+    assert "deep_learning" in used_agents
+    assert "code" in used_agents
+
+    for agent_type in used_agents:
+        assert len(agents[agent_type].calls) == 1
