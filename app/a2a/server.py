@@ -11,8 +11,6 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
-
-from app.config.settings import settings
 from sse_starlette.sse import EventSourceResponse
 
 from app.a2a.base_task_manager import TaskManager
@@ -24,14 +22,15 @@ from app.a2a.models import (
     GetTaskRequest,
     InternalError,
     InvalidRequestError,
-    RateLimitError,
     JSONParseError,
     JSONRPCResponse,
+    RateLimitError,
     SendTaskRequest,
     SendTaskStreamingRequest,
     SetTaskPushNotificationRequest,
     TaskResubscriptionRequest,
 )
+from app.config.settings import settings
 
 
 class A2AServer:
@@ -53,6 +52,7 @@ class A2AServer:
         self.endpoint = endpoint
         self.agent_card = agent_card
         self.task_manager = task_manager
+
         self._rate_limit_lock = asyncio.Lock()
         self._request_timestamps: dict[str, deque[float]] = defaultdict(deque)
 
@@ -73,6 +73,18 @@ class A2AServer:
             methods=["GET"],
             response_model=None,
         )
+        self.app.add_api_route(
+            "/healthz",
+            self._health_check,
+            methods=["GET"],
+            response_model=None,
+        )
+        self.app.add_api_route(
+            "/readyz",
+            self._readiness_check,
+            methods=["GET"],
+            response_model=None,
+        )
 
     def start(self) -> None:
         """Start the ASGI application with Uvicorn."""
@@ -89,6 +101,16 @@ class A2AServer:
         if self.agent_card is None:
             raise RuntimeError("Agent card is not configured")
         return JSONResponse(self.agent_card.model_dump(exclude_none=True))
+
+    async def _health_check(self, _request: Request) -> JSONResponse:
+        return JSONResponse({"status": "ok"})
+
+    async def _readiness_check(self, _request: Request) -> JSONResponse:
+        ready = self.task_manager is not None and self.agent_card is not None
+        return JSONResponse(
+            {"status": "ready" if ready else "not_ready"},
+            status_code=200 if ready else 503,
+        )
 
     async def _is_rate_limited(self, request: Request) -> bool:
         limit = settings.a2a_rate_limit_per_minute
@@ -114,17 +136,6 @@ class A2AServer:
         self, request: Request
     ) -> JSONResponse | EventSourceResponse:
         try:
-            if await self._is_rate_limited(request):
-                return JSONResponse(
-                    JSONRPCResponse(
-                        id=None,
-                        error=RateLimitError(),
-                    ).model_dump(exclude_none=True),
-                    status_code=429,
-                    headers={"Retry-After": "60"},
-                )
-
-            if settings.a2a_api_key:
             if settings.a2a_api_key:
                 authorization = request.headers.get("Authorization", "")
                 expected = f"Bearer {settings.a2a_api_key}"
@@ -136,6 +147,17 @@ class A2AServer:
                         ).model_dump(exclude_none=True),
                         status_code=401,
                     )
+
+            if await self._is_rate_limited(request):
+                return JSONResponse(
+                    JSONRPCResponse(
+                        id=None,
+                        error=RateLimitError(),
+                    ).model_dump(exclude_none=True),
+                    status_code=429,
+                    headers={"Retry-After": "60"},
+                )
+
             body = await request.json()
             rpc_request = A2ARequest.validate_python(body)
 
@@ -152,11 +174,17 @@ class A2AServer:
                 TaskResubscriptionRequest: self.task_manager.on_resubscribe_to_task,
             }
             handler = next(
-                (method for request_type, method in handlers.items() if isinstance(rpc_request, request_type)),
+                (
+                    method
+                    for request_type, method in handlers.items()
+                    if isinstance(rpc_request, request_type)
+                ),
                 None,
             )
             if handler is None:
-                raise ValueError(f"Unsupported request type: {type(rpc_request).__name__}")
+                raise ValueError(
+                    f"Unsupported request type: {type(rpc_request).__name__}"
+                )
 
             return self._create_response(await handler(rpc_request))
         except Exception as exc:
@@ -165,15 +193,18 @@ class A2AServer:
     def _handle_exception(self, exc: Exception) -> JSONResponse:
         if isinstance(exc, json.JSONDecodeError):
             error = JSONParseError()
+            status_code = 400
         elif isinstance(exc, ValidationError):
             error = InvalidRequestError(data=exc.errors())
+            status_code = 400
         else:
             logging.getLogger(__name__).exception("Unhandled A2A request error")
             error = InternalError()
+            status_code = 500
 
         return JSONResponse(
             JSONRPCResponse(id=None, error=error).model_dump(exclude_none=True),
-            status_code=400,
+            status_code=status_code,
         )
 
     @staticmethod
