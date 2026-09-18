@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 from sse_starlette.sse import EventSourceResponse
 
@@ -75,6 +76,14 @@ class A2AServer:
             version="1.0.0",
         )
         self.app.add_middleware(SecurityHeadersMiddleware)
+        if settings.a2a_cors_origins:
+            self.app.add_middleware(
+                CORSMiddleware,
+                allow_origins=list(settings.a2a_cors_origins),
+                allow_credentials=False,
+                allow_methods=["POST", "GET", "OPTIONS"],
+                allow_headers=["Authorization", "Content-Type"],
+            )
         self.app.add_api_route(
             self.endpoint,
             self._process_request,
