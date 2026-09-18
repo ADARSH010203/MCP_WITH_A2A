@@ -422,22 +422,26 @@ class AgentTaskManager(InMemoryTaskManager):
 
         parts = [{"type": "text", "text": content}]
         response_status = agent_response.get("status", "completed")
+        metadata = {
+            "agents_used": agent_response.get("agents_used", []),
+            "verified": agent_response.get("verified", False),
+        }
 
         if response_status == "input_required":
             status = TaskStatus(
                 state=TaskState.INPUT_REQUIRED,
-                message=Message(role="agent", parts=parts),
+                message=Message(role="agent", parts=parts, metadata=metadata),
             )
             artifacts = None
         elif response_status == "error":
             status = TaskStatus(
                 state=TaskState.FAILED,
-                message=Message(role="agent", parts=parts),
+                message=Message(role="agent", parts=parts, metadata=metadata),
             )
             artifacts = None
         else:
             status = TaskStatus(state=TaskState.COMPLETED)
-            artifacts = [Artifact(parts=parts)]
+            artifacts = [Artifact(parts=parts, metadata=metadata)]
 
         task = await self.update_store(request.params.id, status, artifacts)
         await self.send_task_notification(task)
