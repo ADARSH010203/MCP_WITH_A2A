@@ -78,5 +78,49 @@ class SQLiteTaskStore:
         )
         self.connection.commit()
 
+    def purge_expired(self, retention_days: int) -> int:
+        """Delete old terminal tasks and their callback configuration."""
+        if retention_days <= 0:
+            return 0
+
+        from datetime import datetime, timedelta, timezone
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        terminal_states = {
+            "completed",
+            "failed",
+            "canceled",
+            "input-required",
+        }
+
+        rows = self.connection.execute("SELECT id, payload FROM tasks").fetchall()
+        expired_ids: list[str] = []
+        for task_id, payload in rows:
+            try:
+                task = Task.model_validate_json(payload)
+            except ValueError:
+                continue
+
+            timestamp = task.status.timestamp
+            if (
+                task.status.state.value in terminal_states
+                and timestamp < cutoff
+            ):
+                expired_ids.append(task_id)
+
+        if not expired_ids:
+            return 0
+
+        self.connection.executemany(
+            "DELETE FROM tasks WHERE id = ?",
+            [(task_id,) for task_id in expired_ids],
+        )
+        self.connection.executemany(
+            "DELETE FROM push_notification_configs WHERE task_id = ?",
+            [(task_id,) for task_id in expired_ids],
+        )
+        self.connection.commit()
+        return len(expired_ids)
+
     def close(self) -> None:
         self.connection.close()
