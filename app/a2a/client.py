@@ -5,8 +5,6 @@ from typing import Any
 import httpx
 from httpx_sse import aconnect_sse
 
-from app.config.settings import settings
-
 from app.a2a.models import (
     A2AClientHTTPError,
     A2AClientJSONError,
@@ -25,6 +23,8 @@ from app.a2a.models import (
     SetTaskPushNotificationRequest,
     SetTaskPushNotificationResponse,
 )
+from app.config.settings import settings
+
 
 
 class A2AClient:
