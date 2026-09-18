@@ -2,7 +2,7 @@ import json
 from typing import Any, AsyncIterable
 
 import httpx
-from httpx_sse import connect_sse
+from httpx_sse import aconnect_sse
 
 from app.a2a.models import (
     A2AClientHTTPError,
@@ -44,10 +44,11 @@ class A2AClient:
         self, payload: dict[str, Any]
     ) -> AsyncIterable[SendTaskStreamingResponse]:
         request = SendTaskStreamingRequest(params=payload)
+        timeout = httpx.Timeout(connect=10, read=None, write=10, pool=10)
 
         try:
-            with httpx.Client(timeout=None) as client:
-                with connect_sse(
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                async with aconnect_sse(
                     client,
                     "POST",
                     self.url,
@@ -55,7 +56,7 @@ class A2AClient:
                 ) as event_source:
                     event_source.response.raise_for_status()
 
-                    for event in event_source.iter_sse():
+                    async for event in event_source.aiter_sse():
                         if not event.data:
                             continue
                         try:
@@ -64,10 +65,10 @@ class A2AClient:
                             )
                         except (json.JSONDecodeError, ValueError) as exc:
                             raise A2AClientJSONError(str(exc)) from exc
-        except httpx.RequestError as exc:
-            raise A2AClientHTTPError(500, str(exc)) from exc
         except httpx.HTTPStatusError as exc:
             raise A2AClientHTTPError(exc.response.status_code, str(exc)) from exc
+        except httpx.RequestError as exc:
+            raise A2AClientHTTPError(500, str(exc)) from exc
 
     async def _send_request(self, request: JSONRPCRequest) -> dict[str, Any]:
         try:
