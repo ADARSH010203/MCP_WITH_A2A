@@ -1,6 +1,6 @@
 import streamlit as st
-from typing import List, Optional
-from host.host_agent import HostAgent, RemoteAgentClient, AgentCard, AgentCapabilities
+
+from host.host_agent import HostAgent
 
 # Set page config
 st.set_page_config(
@@ -141,6 +141,12 @@ if st.session_state.host_agent:
             with st.chat_message(msg["role"], avatar=msg.get("avatar")):
                 st.markdown(msg["content"])
         
+        selected_agent = st.selectbox(
+            "Agent",
+            options=[agent["name"] for agent in agents],
+            help="Choose which connected A2A agent should receive the request.",
+        )
+
         # User input
         if prompt := st.chat_input("Type your message..."):
             # Add user message to chat
@@ -156,7 +162,7 @@ if st.session_state.host_agent:
             
             # Process the message
             if agents:
-                agent_name = agents[0]["name"]  # Use first agent by default
+                agent_name = selected_agent
                 with st.chat_message("assistant", avatar="🤖"):
                     with st.spinner("Processing..."):
                         try:
