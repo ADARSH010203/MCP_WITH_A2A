@@ -220,6 +220,8 @@ class MultiAgent:
 
     @classmethod
     def _score_agent_types(cls, text: str) -> dict[str, int]:
+        scores: dict[str, int] = {}
+
         for agent_type, keywords in cls.ROUTES:
             score = sum(
                 2 if " " in keyword or "-" in keyword else 1
