@@ -23,6 +23,13 @@ class Settings:
         "meta-llama/llama-4-scout-17b-16e-instruct",
     )
     mcp_url: str = os.getenv("MCP_URL", "http://127.0.0.1:3000/sse")
+    currency_api_url: str = os.getenv(
+        "CURRENCY_API_URL",
+        "https://api.frankfurter.dev/v2",
+    )
+    currency_api_timeout_seconds: float = float(
+        os.getenv("CURRENCY_API_TIMEOUT_SECONDS", "10")
+    )
     a2a_task_db_path: str = os.getenv("A2A_TASK_DB_PATH", ".data/a2a_tasks.db")
     a2a_api_key: str = os.getenv("A2A_API_KEY", "")
     a2a_rate_limit_per_minute: int = int(os.getenv("A2A_RATE_LIMIT_PER_MINUTE", "60"))
