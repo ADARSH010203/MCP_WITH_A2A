@@ -7,6 +7,8 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import tool
 from langchain_groq import ChatGroq
 
+from app.config.settings import settings
+
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
@@ -153,7 +155,7 @@ class HostAgent:
             return f"Error: No agent card found for '{agent_name}'."
 
         task_id = str(uuid.uuid4())
-        session_id = "session-xyz"
+        session_id = f"host-{uuid.uuid4().hex}"
 
         try:
             result = client.send_task(task_id, session_id, message)
@@ -198,7 +200,7 @@ def build_react_agent(host_agent: HostAgent):
     # Create the top-level LLM using Groq
     llm = ChatGroq(
         temperature=0,
-        model="meta-llama/llama-4-maverick-17b-128e-instruct",  # Using a more stable model
+        model=settings.groq_model
         streaming=False
     )
     memory = MemorySaver()
@@ -280,7 +282,7 @@ def run_agent(remote_url: str = "http://localhost:8000"):
 
 def main():
     """
-    Entry point for 'python sync_host_agent_cli.py run-agent --remote-url http://whatever'
+    Start the host-agent CLI.
     """
     app()
 
