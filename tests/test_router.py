@@ -123,6 +123,18 @@ def test_selects_multiple_agents_for_cross_domain_request():
     assert len(selected) <= 3
 
 
+def test_builds_structured_plan_for_cross_domain_request():
+    router = MultiAgent(fake_agents())
+    plan = router.build_collaboration_plan(
+        "Build a Python CNN image classification pipeline"
+    )
+
+    assert plan.mode == "multi-agent"
+    assert "deep_learning" in plan.agents
+    assert "code" in plan.agents
+    assert plan.handoffs["code"] == ("deep_learning",)
+
+
 def test_keeps_simple_request_single_agent():
     router = MultiAgent(fake_agents())
     assert router.select_agent_types("Explain binary search") == ["dsa"]
@@ -141,6 +153,7 @@ def test_collaboration_runs_specialists_and_critic():
     assert result["status"] == "completed"
     assert result["content"] == "critic synthesis"
     assert result["critic_reviewed"] is True
+    assert result["collaboration_plan"]["mode"] == "multi-agent"
     assert len(critic.calls) == 1
 
     used_agents = [item["agent"] for item in critic.calls[0][1]]
