@@ -60,17 +60,23 @@ class RemoteAgentClient:
 
 
 class HostAgent:
-    """Holds references to multiple RemoteAgentClients, one per address."""
+    """Holds references to multiple RemoteAgentClients for one host session."""
 
     def __init__(self, remote_addresses: List[str]):
         self.clients = {}
+        self.session_id = f"host-{uuid.uuid4().hex}"
+        self.initialization_errors: dict[str, str] = {}
         for addr in remote_addresses:
             self.clients[addr] = RemoteAgentClient(addr)
 
     def initialize(self):
-        """Fetch agent cards for all addresses (synchronously)."""
+        """Fetch agent cards without preventing other agents from connecting."""
+        self.initialization_errors.clear()
         for addr, client in self.clients.items():
-            client.fetch_agent_card()
+            try:
+                client.fetch_agent_card()
+            except Exception as exc:
+                self.initialization_errors[addr] = str(exc)
 
     def list_agents_info(self) -> list:
         """Return a list of {name, description, url, streaming} for each loaded agent."""
@@ -114,7 +120,7 @@ class HostAgent:
             return f"Error: No agent card found for '{agent_name}'."
 
         task_id = str(uuid.uuid4())
-        session_id = f"host-{uuid.uuid4().hex}"
+        session_id = self.session_id
 
         try:
             result = client.send_task(task_id, session_id, message)
