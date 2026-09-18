@@ -443,3 +443,41 @@ def test_router_plan_exposes_generic_dependency_groups():
     assert steps["code"].depends_on == ("reinforcement", "game")
     assert steps["reinforcement"].parallel_group == steps["game"].parallel_group == 1
     assert steps["code"].parallel_group == 2
+
+
+class SlowStreamingAgent(FakeAgent):
+    async def stream(self, query: str, session_id: str):
+        self.calls.append((query, session_id))
+        while True:
+            await asyncio.sleep(0.004)
+            yield {
+                "status": "working",
+                "is_task_complete": False,
+                "require_user_input": False,
+                "content": "still working",
+            }
+
+
+def test_streaming_specialist_timeout_is_total_not_per_chunk():
+    import asyncio
+
+    async def scenario():
+        agents = fake_agents()
+        agents["code"] = SlowStreamingAgent("code")
+        router = MultiAgent(agents=agents)
+        router.specialist_timeout_seconds = 0.02
+
+        events = [
+            event
+            async for event in router.stream(
+                "Write Python code",
+                "session-stream-total-timeout",
+            )
+        ]
+
+        final = events[-1]
+        assert final["status"] == "timeout"
+        assert final["is_task_complete"] is False
+        assert final["collaboration_trace"]["events"][-1]["stage"] == "request_completed"
+
+    asyncio.run(scenario())
