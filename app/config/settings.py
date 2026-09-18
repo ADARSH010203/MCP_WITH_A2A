@@ -51,6 +51,16 @@ class Settings:
     mcp_url: str = os.getenv("MCP_URL", "http://127.0.0.1:3000/sse")
     a2a_public_url: str = os.getenv("A2A_PUBLIC_URL", "")
     a2a_specialist_urls: dict[str, str] = field(default_factory=dict, init=False)
+    a2a_remote_connect_timeout_seconds: float = _env_float(
+        "A2A_REMOTE_CONNECT_TIMEOUT_SECONDS",
+        10.0,
+        minimum=0.1,
+    )
+    a2a_remote_request_timeout_seconds: float = _env_float(
+        "A2A_REMOTE_REQUEST_TIMEOUT_SECONDS",
+        55.0,
+        minimum=0.1,
+    )
     currency_api_url: str = os.getenv(
         "CURRENCY_API_URL",
         "https://api.frankfurter.dev/v2",
