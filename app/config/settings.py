@@ -81,6 +81,21 @@ class Settings:
         30,
         minimum=0,
     )
+    a2a_specialist_timeout_seconds: float = _env_float(
+        "A2A_SPECIALIST_TIMEOUT_SECONDS",
+        45.0,
+        minimum=0.1,
+    )
+    a2a_specialist_max_retries: int = _env_int(
+        "A2A_SPECIALIST_MAX_RETRIES",
+        1,
+        minimum=0,
+    )
+    a2a_max_agent_calls_per_task: int = _env_int(
+        "A2A_MAX_AGENT_CALLS_PER_TASK",
+        6,
+        minimum=1,
+    )
     push_notification_require_https: bool = _env_bool(
         "PUSH_NOTIFICATION_REQUIRE_HTTPS",
         True,
