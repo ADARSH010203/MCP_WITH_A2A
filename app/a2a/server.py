@@ -216,7 +216,7 @@ class A2AServer:
                     data = item.model_dump_json(exclude_none=True)
                     yield {"data": data}
 
-            return EventSourceResponse(event_generator())
+            return EventSourceResponse(event_generator(), ping=15)
 
         if isinstance(result, JSONRPCResponse):
             return JSONResponse(result.model_dump(exclude_none=True))
