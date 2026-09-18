@@ -354,6 +354,34 @@ WORKING
 ```
 
 Tasks with the same ID and the same session/message are treated as retries and do not start a second agent execution. Streaming clients can reconnect to an active in-process worker or replay a terminal task's final state.
+### Deterministic evaluation and benchmarking
+
+Phase 7 adds a lightweight benchmark suite for routing and collaboration behavior. It evaluates the coordinator without calling Groq or external services, so the benchmark is safe to run in CI and can catch routing regressions early.
+
+Benchmark cases live in `benchmarks/routing_cases.json`. Each case defines the expected specialist selection, collaboration mode, and optional dependency handoffs.
+
+The evaluator reports:
+
+- **Routing accuracy** — whether the top-ranked specialist matches the expected primary domain.
+- **Selection accuracy** — whether the complete selected specialist set matches the benchmark.
+- **Collaboration accuracy** — whether the planner chooses the expected single-agent or multi-agent mode.
+- **Handoff accuracy** — whether expected dependency handoffs are preserved.
+- **Decision latency** — average and P95 time spent in deterministic routing and planning.
+
+Run it locally:
+
+```bash
+python -m experiments.run_evaluation
+```
+
+Write a machine-readable report:
+
+```bash
+python -m experiments.run_evaluation --json-output .data/evaluation.json
+```
+
+The benchmark intentionally measures **routing and orchestration decisions**, not LLM answer quality. Live model quality evaluation will be added separately with a controlled dataset and provider-backed scoring.
+
 ## Example Requests
 
 - "What is the exchange rate between USD and EUR?"
