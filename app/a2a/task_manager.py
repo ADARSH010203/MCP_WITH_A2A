@@ -106,6 +106,23 @@ class AgentTaskManager(InMemoryTaskManager):
 
         return CancelTaskResponse(id=request.id, result=task)
 
+    async def _start_streaming_task(
+        self,
+        request: SendTaskStreamingRequest,
+    ) -> None:
+        """Run one streaming worker and always remove it from the active registry."""
+        task_id = request.params.id
+        try:
+            await self._run_streaming_agent(request)
+        except asyncio.CancelledError:
+            logging.getLogger(__name__).info(
+                "Streaming task %s canceled",
+                task_id,
+            )
+            raise
+        finally:
+            self.streaming_tasks.pop(task_id, None)
+
     async def _run_streaming_agent(self, request: SendTaskStreamingRequest) -> None:
         task_send_params = request.params
         query = self._get_user_query(task_send_params)
