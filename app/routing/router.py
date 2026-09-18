@@ -636,55 +636,77 @@ class MultiAgent:
         trace: CollaborationTrace,
     ) -> dict[str, Any]:
         agent_types = list(plan.agents)
-        handoff_targets = plan.handoffs
         budget = CallBudget(self.max_agent_calls_per_task)
-        lead_types = [
-            step.agent
-            for step in plan.steps
-            if step.parallel_group == 1 and step.agent != "critic"
-        ]
+        outcomes: list[dict[str, Any]] = []
 
-        outcomes = self._run_parallel_specialists(
-            lead_types,
-            query,
-            session_id,
-            budget=budget,
-            trace=trace,
+        specialist_groups = sorted(
+            {
+                step.parallel_group
+                for step in plan.steps
+                if step.agent != "critic"
+            }
         )
 
-        for target in handoff_targets:
-            upstream = [
-                outcome
-                for outcome in outcomes
-                if outcome["agent"] in handoff_targets[target]
-                and outcome["status"] == "completed"
-                and outcome["content"]
+        for group in specialist_groups:
+            group_steps = [
+                step
+                for step in plan.steps
+                if step.parallel_group == group and step.agent != "critic"
             ]
-            trace.record(
-                "handoff",
-                target,
-                "started",
-                details={"upstream": [item["agent"] for item in upstream]},
-            )
-            outcomes.append(
-                self._run_specialist(
-                    target,
+            group_agents = [step.agent for step in group_steps]
+
+            def upstream_for(step: Any) -> list[dict[str, Any]]:
+                return [
+                    outcome
+                    for outcome in outcomes
+                    if outcome["agent"] in step.depends_on
+                    and outcome["status"] == "completed"
+                    and outcome["content"]
+                ]
+
+            independent_steps = [
+                step for step in group_steps if not step.depends_on
+            ]
+            dependent_steps = [
+                step for step in group_steps if step.depends_on
+            ]
+
+            if independent_steps:
+                independent_outcomes = self._run_parallel_specialists(
+                    [step.agent for step in independent_steps],
+                    query,
+                    session_id,
+                    budget=budget,
+                    trace=trace,
+                )
+                outcomes.extend(independent_outcomes)
+
+            for step in dependent_steps:
+                upstream = upstream_for(step)
+                trace.record(
+                    "handoff",
+                    step.agent,
+                    "started",
+                    details={"upstream": [item["agent"] for item in upstream]},
+                )
+                outcome = self._run_specialist(
+                    step.agent,
                     query,
                     session_id,
                     upstream_findings=upstream,
                     budget=budget,
                     trace=trace,
                 )
-            )
-            trace.record(
-                "handoff",
-                target,
-                "completed",
-                details={
-                    "upstream": [item["agent"] for item in upstream],
-                    "status": outcomes[-1]["status"],
-                },
-            )
+                outcomes.append(outcome)
+                trace.record(
+                    "handoff",
+                    step.agent,
+                    "completed",
+                    details={
+                        "upstream": [item["agent"] for item in upstream],
+                        "status": outcome["status"],
+                    },
+                )
 
         successful = [
             outcome
@@ -721,7 +743,12 @@ class MultiAgent:
                 "collaboration_plan": plan.to_dict(),
             }
 
-        synthesis = self._synthesize_with_timeout(query, outcomes, budget)
+        synthesis = self._synthesize_with_timeout(
+            query,
+            outcomes,
+            budget,
+            trace=trace,
+        )
         if synthesis.get("status") in {"budget_exceeded", "timeout", "error"}:
             fallback = "\n\n".join(
                 f"{item['agent']}: {item['content']}"
@@ -741,6 +768,7 @@ class MultiAgent:
                 "collaboration_plan": plan.to_dict(),
                 "collaboration_trace": trace.snapshot(),
             }
+
         if needs_input and synthesis.get("status") == "completed":
             synthesis["content"] = (
                 synthesis.get("content", "")
@@ -748,6 +776,7 @@ class MultiAgent:
                 + ", ".join(item["agent"] for item in needs_input)
                 + "."
             )
+
         return {
             "status": synthesis.get("status", "error"),
             "is_task_complete": synthesis.get("status") == "completed",
