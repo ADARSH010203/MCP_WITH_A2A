@@ -13,15 +13,6 @@ from app.agents.game import GameGeneratorAgent
 from app.agents.image import ImageGeneratorAgent
 from app.agents.reinforcement import ReinforcementLearningAgent
 
-# from app.agents.specialized import (
-    CodeGeneratorAgent,
-    DeepLearningAgent,
-    DsaAgent,
-    EmailWriterAgent,
-    GameGeneratorAgent,
-    ImageGeneratorAgent,
-    RainformentAgent,
-)
 
 
 class MultiAgent:
@@ -46,7 +37,7 @@ class MultiAgent:
             "image": ImageGeneratorAgent(),
             "game": GameGeneratorAgent(),
             "deep_learning": DeepLearningAgent(),
-            "rainforment": ReinforcementLearningAgent(),
+            "reinforcement": ReinforcementLearningAgent(),
             "dsa": DsaAgent(),
         }
 
