@@ -19,3 +19,6 @@ venv/
 
 # Generated/local assets
 *.log
+
+# Local application data
+.data/
