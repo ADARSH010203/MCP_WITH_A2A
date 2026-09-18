@@ -532,7 +532,7 @@ class MultiAgent:
             return
 
         stream = self._get_agent(agent_type).stream(query, session_id)
-        completed_recorded = False
+        terminal_status: str | None = None
         deadline = time.perf_counter() + self.specialist_timeout_seconds
 
         try:
@@ -545,10 +545,28 @@ class MultiAgent:
                     stream.__anext__(),
                     timeout=remaining,
                 )
+                status = str(item.get("status", "working"))
+                is_terminal = item.get("is_task_complete", False) or status in {
+                    "error",
+                    "timeout",
+                    "budget_exceeded",
+                }
+                if is_terminal and terminal_status is None:
+                    terminal_status = status
+                    if trace:
+                        trace.record(
+                            "specialist_completed",
+                            agent_type,
+                            terminal_status,
+                            (time.perf_counter() - started) * 1000,
+                        )
                 yield item
+                if is_terminal:
+                    return
         except StopAsyncIteration:
             return
         except asyncio.TimeoutError:
+            terminal_status = "timeout"
             if trace:
                 trace.record(
                     "specialist_completed",
@@ -556,7 +574,6 @@ class MultiAgent:
                     "timeout",
                     (time.perf_counter() - started) * 1000,
                 )
-            completed_recorded = True
             yield {
                 "status": "timeout",
                 "is_task_complete": False,
@@ -567,7 +584,7 @@ class MultiAgent:
                 ),
             }
         finally:
-            if trace and not completed_recorded:
+            if trace and terminal_status is None:
                 trace.record(
                     "specialist_completed",
                     agent_type,
