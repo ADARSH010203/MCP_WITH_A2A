@@ -7,49 +7,13 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import tool
 from langchain_groq import ChatGroq
 
+from app.a2a.models import AgentCard, AgentCapabilities, TaskState
 from app.config.settings import settings
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
 
-class AgentCapabilities:
-    def __init__(
-        self, streaming=False, pushNotifications=False, stateTransitionHistory=False
-    ):
-        self.streaming = streaming
-        self.pushNotifications = pushNotifications
-        self.stateTransitionHistory = stateTransitionHistory
-
-
-class AgentCard:
-    def __init__(
-        self,
-        name: str,
-        url: str,
-        version: str,
-        capabilities: AgentCapabilities,
-        description: Optional[str] = None,
-    ):
-        self.name = name
-        self.url = url
-        self.version = version
-        self.capabilities = capabilities
-        self.description = description or "No description."
-
-
-class TaskState:
-    SUBMITTED = "submitted"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELED = "canceled"
-    UNKNOWN = "unknown"
-    INPUT_REQUIRED = "input-required"
-
-
-###############################################################################
-# 2) Synchronous RemoteAgentClient
-###############################################################################
 class RemoteAgentClient:
     """Communicates with a single remote agent (A2A) in synchronous mode."""
 
@@ -58,23 +22,16 @@ class RemoteAgentClient:
         self.agent_card: Optional[AgentCard] = None
 
     def fetch_agent_card(self) -> AgentCard:
-        """GET /.well-known/agent.json to retrieve the remote agent's card."""
+        """Fetch and validate the remote agent's A2A Agent Card."""
         url = f"{self.base_url}/.well-known/agent.json"
-        headers = {"Authorization": f"Bearer {settings.a2a_api_key}"} if settings.a2a_api_key else {}
-        resp = requests.get(url, headers=headers, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-
-        caps_data = data["capabilities"]
-        caps = AgentCapabilities(**caps_data)
-
-        card = AgentCard(
-            name=data["name"],
-            url=self.base_url,
-            version=data["version"],
-            capabilities=caps,
-            description=data.get("description", ""),
+        headers = (
+            {"Authorization": f"Bearer {settings.a2a_api_key}"}
+            if settings.a2a_api_key
+            else {}
         )
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        card = AgentCard.model_validate(response.json())
         self.agent_card = card
         return card
 
