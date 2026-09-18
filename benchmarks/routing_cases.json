@@ -1,0 +1,83 @@
+[
+  {
+    "name": "currency_exchange",
+    "query": "What is the exchange rate from USD to EUR?",
+    "expected_agents": ["currency"],
+    "expected_mode": "single-agent"
+  },
+  {
+    "name": "professional_email",
+    "query": "Write a professional email asking for college leave.",
+    "expected_agents": ["email"],
+    "expected_mode": "single-agent"
+  },
+  {
+    "name": "image_generation",
+    "query": "Generate an image of a futuristic city at night.",
+    "expected_agents": ["image"],
+    "expected_mode": "single-agent"
+  },
+  {
+    "name": "game_design",
+    "query": "Design a Unity game level with simple game mechanics.",
+    "expected_agents": ["game"],
+    "expected_mode": "single-agent"
+  },
+  {
+    "name": "deep_learning",
+    "query": "Explain CNN training in PyTorch.",
+    "expected_agents": ["deep_learning"],
+    "expected_mode": "single-agent"
+  },
+  {
+    "name": "reinforcement_learning",
+    "query": "Explain Q-learning and reward design.",
+    "expected_agents": ["reinforcement"],
+    "expected_mode": "single-agent"
+  },
+  {
+    "name": "dsa",
+    "query": "Solve this binary search problem and explain its complexity.",
+    "expected_agents": ["dsa"],
+    "expected_mode": "single-agent"
+  },
+  {
+    "name": "code",
+    "query": "Debug this Python API and fix the implementation bug.",
+    "expected_agents": ["code"],
+    "expected_mode": "single-agent"
+  },
+  {
+    "name": "deep_learning_plus_code",
+    "query": "Build a Python CNN image classification pipeline.",
+    "expected_agents": ["deep_learning", "code"],
+    "expected_mode": "multi-agent",
+    "expected_handoffs": {
+      "code": ["deep_learning"]
+    }
+  },
+  {
+    "name": "rl_game_plus_code",
+    "query": "Design a game using Q-learning and implement it in Python.",
+    "expected_agents": ["reinforcement", "code", "game"],
+    "expected_mode": "multi-agent",
+    "expected_handoffs": {
+      "code": ["reinforcement", "game"]
+    }
+  },
+  {
+    "name": "nlp_plus_code",
+    "query": "Design a transformer NLP model and implement the Python API.",
+    "expected_agents": ["deep_learning", "code"],
+    "expected_mode": "multi-agent",
+    "expected_handoffs": {
+      "code": ["deep_learning"]
+    }
+  },
+  {
+    "name": "image_classification_routing",
+    "query": "Analyze image classification model choices.",
+    "expected_agents": ["deep_learning"],
+    "expected_mode": "single-agent"
+  }
+]
