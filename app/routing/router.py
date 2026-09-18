@@ -1,7 +1,7 @@
 """Route requests to the project's specialized agents."""
 
 import re
-from collections.abc import AsyncIterable
+from collections.abc import AsyncIterable, Callable
 from typing import Any, Protocol
 
 from app.a2a.models import Message
@@ -23,31 +23,69 @@ class Agent(Protocol):
         ...
 
 
+AgentFactory = Callable[[], Agent]
+
+
 class MultiAgent:
-    """Select and run one of the specialized agents."""
+    """Select and run specialized agents, creating them only when needed."""
 
     ROUTES: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("currency", ("currency", "exchange rate", "exchange rates", "forex", "usd", "eur", "gbp")),
         ("email", ("email", "mail", "draft an email", "professional message", "subject line")),
         ("image", ("image", "picture", "photo", "illustration", "generate an image")),
         ("game", ("game", "gameplay", "level design", "character design", "game mechanics")),
-        ("deep_learning", ("deep learning", "neural network", "neural networks", "model training", "cnn", "transformer")),
-        ("reinforcement", ("reinforcement learning", "reinforcement", "q-learning", "policy gradient")),
-        ("dsa", ("dsa", "data structures", "binary search", "sorting", "shortest path", "dynamic programming", "backtracking")),
+        (
+            "deep_learning",
+            (
+                "deep learning",
+                "neural network",
+                "neural networks",
+                "model training",
+                "cnn",
+                "transformer",
+            ),
+        ),
+        (
+            "reinforcement",
+            ("reinforcement learning", "reinforcement", "q-learning", "policy gradient"),
+        ),
+        (
+            "dsa",
+            (
+                "dsa",
+                "data structures",
+                "binary search",
+                "sorting",
+                "shortest path",
+                "dynamic programming",
+                "backtracking",
+            ),
+        ),
         ("code", ("code", "program", "function", "class", "script", "algorithm")),
     )
 
-    def __init__(self, agents: dict[str, Agent] | None = None) -> None:
-        self.agents = agents or {
-            "currency": CurrencyAgent(),
-            "email": EmailWriterAgent(),
-            "code": CodeGeneratorAgent(),
-            "image": ImageGeneratorAgent(),
-            "game": GameGeneratorAgent(),
-            "deep_learning": DeepLearningAgent(),
-            "reinforcement": ReinforcementLearningAgent(),
-            "dsa": DsaAgent(),
-        }
+    DEFAULT_AGENT_FACTORIES: dict[str, AgentFactory] = {
+        "currency": CurrencyAgent,
+        "email": EmailWriterAgent,
+        "code": CodeGeneratorAgent,
+        "image": ImageGeneratorAgent,
+        "game": GameGeneratorAgent,
+        "deep_learning": DeepLearningAgent,
+        "reinforcement": ReinforcementLearningAgent,
+        "dsa": DsaAgent,
+    }
+
+    def __init__(
+        self,
+        agents: dict[str, Agent] | None = None,
+        agent_factories: dict[str, AgentFactory] | None = None,
+    ) -> None:
+        self.agents = agents if agents is not None else {}
+        self.agent_factories = (
+            agent_factories
+            if agent_factories is not None
+            else self.DEFAULT_AGENT_FACTORIES.copy()
+        )
 
     @staticmethod
     def _normalize(text: str) -> str:
@@ -74,10 +112,17 @@ class MultiAgent:
         return "code"
 
     def _get_agent(self, agent_type: str) -> Agent:
-        try:
-            return self.agents[agent_type]
-        except KeyError as exc:
-            raise ValueError(f"Unsupported agent type: {agent_type}") from exc
+        existing_agent = self.agents.get(agent_type)
+        if existing_agent is not None:
+            return existing_agent
+
+        factory = self.agent_factories.get(agent_type)
+        if factory is None:
+            raise ValueError(f"Unsupported agent type: {agent_type}")
+
+        agent = factory()
+        self.agents[agent_type] = agent
+        return agent
 
     def _route(self, query: str) -> Agent:
         message = Message(role="user", parts=[{"type": "text", "text": query}])
