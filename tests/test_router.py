@@ -481,3 +481,17 @@ def test_streaming_specialist_timeout_is_total_not_per_chunk():
         assert final["collaboration_trace"]["events"][-1]["stage"] == "request_completed"
 
     asyncio.run(scenario())
+
+
+def test_router_rejects_unknown_planner_agent():
+    router = MultiAgent(fake_agents())
+
+    try:
+        router.build_collaboration_plan(
+            "use this",
+            agent_types=["unknown_agent"],
+        )
+    except ValueError as exc:
+        assert "Unknown agent type" in str(exc)
+    else:
+        raise AssertionError("Expected unknown specialist to be rejected")
