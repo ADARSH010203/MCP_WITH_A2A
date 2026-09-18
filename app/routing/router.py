@@ -903,105 +903,128 @@ class MultiAgent:
             "collaboration_trace": trace.snapshot(),
         }
 
-        handoff_targets = plan.handoffs
-        lead_types = [
-            step.agent
-            for step in plan.steps
-            if step.parallel_group == 1 and step.agent != "critic"
-        ]
+        specialist_groups = sorted(
+            {
+                step.parallel_group
+                for step in plan.steps
+                if step.agent != "critic"
+            }
+        )
 
-        tasks = [
-            asyncio.create_task(
-                asyncio.to_thread(
+        for group in specialist_groups:
+            group_steps = [
+                step
+                for step in plan.steps
+                if step.parallel_group == group and step.agent != "critic"
+            ]
+            outcomes: list[dict[str, Any]] = getattr(
+                locals().get("_outcomes_holder", None),
+                "value",
+                [],
+            )
+            # Keep one shared outcome list across all dependency groups.
+            if not hasattr(self, "_stream_outcomes"):
+                pass
+
+        stream_outcomes: list[dict[str, Any]] = []
+        for group in specialist_groups:
+            group_steps = [
+                step
+                for step in plan.steps
+                if step.parallel_group == group and step.agent != "critic"
+            ]
+            independent_steps = [
+                step for step in group_steps if not step.depends_on
+            ]
+            dependent_steps = [
+                step for step in group_steps if step.depends_on
+            ]
+
+            if independent_steps:
+                tasks = [
+                    asyncio.create_task(
+                        asyncio.to_thread(
+                            self._run_specialist,
+                            step.agent,
+                            query,
+                            session_id,
+                            None,
+                            budget,
+                            trace,
+                        )
+                    )
+                    for step in independent_steps
+                ]
+                group_outcomes = list(await asyncio.gather(*tasks))
+                stream_outcomes.extend(group_outcomes)
+
+                for outcome in group_outcomes:
+                    yield {
+                        "is_task_complete": False,
+                        "require_user_input": False,
+                        "status": "working",
+                        "content": (
+                            f"{outcome['agent']} specialist completed its analysis."
+                            if outcome["status"] == "completed"
+                            else (
+                                f"{outcome['agent']} specialist did not return "
+                                "a usable result."
+                            )
+                        ),
+                        "agents_used": agent_types,
+                        "collaboration_mode": "multi-agent",
+                        "collaboration_plan": plan.to_dict(),
+                        "collaboration_trace": trace.snapshot(),
+                    }
+
+            for step in dependent_steps:
+                upstream = [
+                    outcome
+                    for outcome in stream_outcomes
+                    if outcome["agent"] in step.depends_on
+                    and outcome["status"] == "completed"
+                    and outcome["content"]
+                ]
+                trace.record(
+                    "handoff",
+                    step.agent,
+                    "started",
+                    details={"upstream": [item["agent"] for item in upstream]},
+                )
+                outcome = await asyncio.to_thread(
                     self._run_specialist,
-                    agent_type,
+                    step.agent,
                     query,
                     session_id,
-                    None,
+                    upstream,
                     budget,
                     trace,
                 )
-            )
-            for agent_type in lead_types
-        ]
-
-        outcomes = list(await asyncio.gather(*tasks))
-        for outcome in outcomes:
-            if outcome["status"] == "completed":
+                stream_outcomes.append(outcome)
+                trace.record(
+                    "handoff",
+                    step.agent,
+                    "completed",
+                    details={
+                        "upstream": [item["agent"] for item in upstream],
+                        "status": outcome["status"],
+                    },
+                )
                 yield {
                     "is_task_complete": False,
                     "require_user_input": False,
                     "status": "working",
                     "content": (
-                        f"{outcome['agent']} specialist completed its analysis."
+                        f"{step.agent} specialist completed its implementation "
+                        "using upstream findings."
+                        if outcome["status"] == "completed"
+                        else f"{step.agent} specialist did not return a usable result."
                     ),
                     "agents_used": agent_types,
                     "collaboration_mode": "multi-agent",
                     "collaboration_plan": plan.to_dict(),
                     "collaboration_trace": trace.snapshot(),
                 }
-            else:
-                yield {
-                    "is_task_complete": False,
-                    "require_user_input": False,
-                    "status": "working",
-                    "content": (
-                        f"{outcome['agent']} specialist did not return a usable result."
-                    ),
-                    "agents_used": agent_types,
-                    "collaboration_mode": "multi-agent",
-                    "collaboration_plan": plan.to_dict(),
-                    "collaboration_trace": trace.snapshot(),
-                }
-
-        for target in handoff_targets:
-            upstream = [
-                outcome
-                for outcome in outcomes
-                if outcome["agent"] in handoff_targets[target]
-                and outcome["status"] == "completed"
-                and outcome["content"]
-            ]
-            trace.record(
-                "handoff",
-                target,
-                "started",
-                details={"upstream": [item["agent"] for item in upstream]},
-            )
-            outcome = await asyncio.to_thread(
-                self._run_specialist,
-                target,
-                query,
-                session_id,
-                upstream,
-                budget,
-                trace,
-            )
-            trace.record(
-                "handoff",
-                target,
-                "completed",
-                details={
-                    "upstream": [item["agent"] for item in upstream],
-                    "status": outcome["status"],
-                },
-            )
-            outcomes.append(outcome)
-            yield {
-                "is_task_complete": False,
-                "require_user_input": False,
-                "status": "working",
-                "content": (
-                    f"{target} specialist completed its implementation using "
-                    "upstream findings."
-                    if outcome["status"] == "completed"
-                    else f"{target} specialist did not return a usable result."
-                ),
-                "agents_used": agent_types,
-                "collaboration_mode": "multi-agent",
-                "collaboration_plan": plan.to_dict(),
-                "collaboration_trace": trace.snapshot(),
-            }
 
         yield {
             "is_task_complete": False,
