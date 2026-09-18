@@ -1,7 +1,15 @@
+"""MCP server exposing the currency exchange-rate demonstration tool."""
 
-from mcp.server.fastmcp import FastMCP # type: ignore
+from mcp.server.fastmcp import FastMCP  # type: ignore
 
-mcp = FastMCP(name="MinimalServer", host="0.0.0.0", port=3000)
+MCP_HOST = "0.0.0.0"
+MCP_PORT = 3000
+
+mcp = FastMCP(
+    name="CurrencyTools",
+    host=MCP_HOST,
+    port=MCP_PORT,
+)
 
 
 @mcp.tool()
@@ -9,24 +17,30 @@ def get_exchange_rate(
     currency_from: str = "USD",
     currency_to: str = "EUR",
     currency_date: str = "latest",
-):
-    """Dummy-Tool, das 1:1 eine statische Antwort zurückgibt, anstelle eines echten API-Calls.
+) -> dict:
+    """Return a placeholder exchange rate for the requested currency pair.
 
-    Args:
-        currency_from: Die Quellwährung (z.B. "USD").
-        currency_to: Die Zielwährung (z.B. "EUR").
-        currency_date: Das Datum für den Wechselkurs oder "latest". Standard "latest".
-
-    Returns:
-        Ein Dictionary mit statischen Placeholder-Daten.
+    This tool is intentionally deterministic for the MCP/A2A demo. It does not
+    query a live exchange-rate provider.
     """
+    base = currency_from.strip().upper()
+    target = currency_to.strip().upper()
+    date = currency_date.strip() or "latest"
+
+    if len(base) != 3 or len(target) != 3:
+        raise ValueError("currency_from and currency_to must be 3-letter currency codes")
+
+    if base == target:
+        rate = 1.0
+    else:
+        rate = 0.85
+
     return {
         "amount": 1,
-        "base": currency_from,
-        "date": currency_date,
-        "rates": {currency_to: 0.85},  # Beispiel-Rate
+        "base": base,
+        "date": date,
+        "rates": {target: rate},
     }
-
 
 
 if __name__ == "__main__":
