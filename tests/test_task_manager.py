@@ -11,6 +11,7 @@ from app.a2a.models import (
     TextPart,
 )
 from app.a2a.task_manager import AgentTaskManager
+from app.a2a.task_store import SQLiteTaskStore
 
 
 class FakeNotificationAuth:
@@ -93,7 +94,11 @@ def test_duplicate_task_id_does_not_run_agent_twice():
                 "content": "done",
             }
         )
-        manager = AgentTaskManager(agent, FakeNotificationAuth())
+        manager = AgentTaskManager(
+            agent,
+            FakeNotificationAuth(),
+            store=SQLiteTaskStore(":memory:"),
+        )
         request = make_request()
 
         first = await manager.on_send_task(request)
@@ -118,7 +123,11 @@ def test_reusing_task_id_with_different_request_is_rejected():
                 "content": "done",
             }
         )
-        manager = AgentTaskManager(agent, FakeNotificationAuth())
+        manager = AgentTaskManager(
+            agent,
+            FakeNotificationAuth(),
+            store=SQLiteTaskStore(":memory:"),
+        )
 
         await manager.on_send_task(make_request())
         conflicting = make_request(text="Different request")
@@ -134,7 +143,11 @@ def test_reusing_task_id_with_different_request_is_rejected():
 def test_streaming_retry_does_not_start_second_worker():
     async def scenario():
         agent = FakeStreamingAgent()
-        manager = AgentTaskManager(agent, FakeNotificationAuth())
+        manager = AgentTaskManager(
+            agent,
+            FakeNotificationAuth(),
+            store=SQLiteTaskStore(":memory:"),
+        )
 
         response = await manager.on_send_task_subscribe(make_stream_request())
         assert not isinstance(response, JSONRPCResponse)
@@ -160,7 +173,11 @@ def test_streaming_retry_does_not_start_second_worker():
 def test_streaming_task_can_be_canceled():
     async def scenario():
         agent = BlockingStreamingAgent()
-        manager = AgentTaskManager(agent, FakeNotificationAuth())
+        manager = AgentTaskManager(
+            agent,
+            FakeNotificationAuth(),
+            store=SQLiteTaskStore(":memory:"),
+        )
         request = make_stream_request("cancel-me")
 
         response = await manager.on_send_task_subscribe(request)
@@ -183,5 +200,48 @@ def test_streaming_task_can_be_canceled():
 
         assert events[-1].result is not None
         assert events[-1].result.status.state == TaskState.CANCELED
+
+    asyncio.run(scenario())
+
+
+
+def test_task_state_survives_manager_restart(tmp_path):
+    async def scenario():
+        db_path = str(tmp_path / "tasks.db")
+        agent = FakeAgent(
+            {
+                "status": "completed",
+                "is_task_complete": True,
+                "require_user_input": False,
+                "content": "persisted",
+            }
+        )
+
+        manager_one = AgentTaskManager(
+            agent,
+            FakeNotificationAuth(),
+            store=SQLiteTaskStore(db_path),
+        )
+        request = make_request("persistent-task")
+        first = await manager_one.on_send_task(request)
+        assert first.result is not None
+        assert first.result.status.state == TaskState.COMPLETED
+
+        manager_two = AgentTaskManager(
+            FakeAgent(
+                {
+                    "status": "completed",
+                    "is_task_complete": True,
+                    "require_user_input": False,
+                    "content": "should not run",
+                }
+            ),
+            FakeNotificationAuth(),
+            store=SQLiteTaskStore(db_path),
+        )
+        restored = await manager_two.get_stored_task("persistent-task")
+        assert restored is not None
+        assert restored.status.state == TaskState.COMPLETED
+        assert restored.artifacts
 
     asyncio.run(scenario())
