@@ -200,7 +200,7 @@ def build_react_agent(host_agent: HostAgent):
     # Create the top-level LLM using Groq
     llm = ChatGroq(
         temperature=0,
-        model=settings.groq_model
+        model=settings.groq_model,
         streaming=False
     )
     memory = MemorySaver()
@@ -215,9 +215,7 @@ You have two tools:
 1) list_remote_agents_tool(): Lists the remote agents (their name, URL, streaming).
 2) send_task_tool(agent_name, message): Sends a text request to the agent.
 
-If the user wants currency conversion, call 'send_task_tool("some_agent_name", "5 USD to EUR")'.
-If the user wants weather info, call 'send_task_tool("some_weather_agent", "Weather in city")'.
-
+Use the available agent list to choose the appropriate remote agent. Do not invent an agent that is not present in the list.
 Return the final result to the user.
 """
 
