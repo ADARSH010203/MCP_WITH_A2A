@@ -48,11 +48,36 @@ def test_routes_reinforcement_learning():
     assert router._detect_agent_type(router_message("Explain Q-learning")) == "reinforcement"
 
 
+def test_routes_all_specialists():
+    router = MultiAgent(fake_agents())
+    cases = {
+        "Write a professional email for leave": "email",
+        "Generate an image of a mountain": "image",
+        "Design a Unity game level": "game",
+        "Explain CNN training in PyTorch": "deep_learning",
+        "Explain policy gradient reinforcement learning": "reinforcement",
+        "Solve this linked list problem": "dsa",
+        "Debug this Python API": "code",
+    }
+    for query, expected in cases.items():
+        assert router._detect_agent_type(router_message(query)) == expected
+
+
 def test_routes_dsa():
     router = MultiAgent(fake_agents())
     assert router._detect_agent_type(
         router_message("Solve this dynamic programming problem")
     ) == "dsa"
+
+
+def test_prefers_deep_learning_for_transformer_architecture():
+    router = MultiAgent(fake_agents())
+    assert (
+        router._detect_agent_type(
+            router_message("Explain transformer architecture for NLP")
+        )
+        == "deep_learning"
+    )
 
 
 def test_falls_back_to_code():
