@@ -28,8 +28,10 @@ from app.a2a.models import (
     TaskStatus,
     TaskStatusUpdateEvent,
     TextPart,
+    UnsupportedOperationError,
 )
 from app.a2a.push_notification_auth import PushNotificationSenderAuth
+from app.a2a.task_store import SQLiteTaskStore
 from app.config.constants import SUPPORTED_CONTENT_TYPES
 
 
@@ -365,6 +367,25 @@ class AgentTaskManager(InMemoryTaskManager):
     async def on_resubscribe_to_task(
         self, request: Any
     ) -> AsyncIterable[SendTaskStreamingResponse] | JSONRPCResponse:
+        task = await self.get_stored_task(request.params.id)
+        if task is None:
+            return JSONRPCResponse(
+                id=request.id,
+                error=TaskNotFoundError(),
+            )
+
+        if self._is_terminal(task):
+            queue = await self._queue_current_task_state(task)
+            return self.dequeue_events_for_sse(request.id, task.id, queue)
+
+        if request.params.id not in self.streaming_tasks:
+            return JSONRPCResponse(
+                id=request.id,
+                error=UnsupportedOperationError(
+                    message="This task is active but does not have a resumable streaming worker."
+                ),
+            )
+
         try:
             queue = await self.setup_sse_consumer(request.params.id, True)
             return self.dequeue_events_for_sse(request.id, request.params.id, queue)
