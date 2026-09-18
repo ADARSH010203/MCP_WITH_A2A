@@ -117,6 +117,10 @@ MCP_WITH_A2A/
 │   └── cli.py
 ├── frontend/
 │   └── streamlit_app.py
+├── docs/
+│   ├── index.html
+│   ├── styles.css
+│   └── app.js
 ├── scripts/
 │   ├── run_a2a_server.py
 │   ├── run_mcp_server.py
@@ -125,6 +129,10 @@ MCP_WITH_A2A/
 │   └── run_evaluation.py
 ├── tests/
 │   ├── test_evaluation.py
+│   ├── test_security.py
+│   ├── test_memory.py
+│   ├── test_calculator.py
+│   ├── test_deployment.py
 │   ├── test_router.py
 │   ├── test_planner.py
 │   ├── test_task_manager.py
@@ -135,6 +143,7 @@ MCP_WITH_A2A/
 │   └── test_mcp.py
 ├── .env.example
 ├── Dockerfile
+├── docker-compose.yml
 ├── requirements.txt
 └── pyproject.toml
 ```
@@ -254,6 +263,20 @@ The coordinator discovers each remote Agent Card from `/.well-known/agent.json` 
 ```
 
 This is the first phase where specialist services can cross a process or machine boundary. The coordinator remains the orchestration authority, but a dependent specialist can now be an independent remote A2A service; its upstream findings are sent as task input over A2A instead of invoking that specialist's Python class directly. This is coordinator-mediated distributed collaboration, not direct peer-to-peer calls between every specialist.
+
+## Docker deployment
+
+Build and run the A2A + MCP stack with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+The A2A API is exposed on `http://localhost:8000`, while the MCP service stays internal to the Compose network. Task and conversation databases are stored in the named `a2a_data` volume.
+
+Set the required `GROQ_API_KEY` before starting the stack. For browser access from the documentation site, set `A2A_CORS_ORIGINS` to the exact site origin. For a deployed environment, also set `A2A_API_KEY` and `A2A_PUBLIC_URL`.
+
+The Docker image runs as a non-root `app` user and includes a `/readyz` health check.
 
 ## Run the A2A Server
 
