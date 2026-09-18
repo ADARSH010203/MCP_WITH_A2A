@@ -189,6 +189,13 @@ def test_streaming_retry_does_not_start_second_worker():
             "deep_learning",
             "code",
         ]
+        assert events[-1].result.metadata["collaboration_trace"] == {
+            "trace_id": "",
+            "started_at": "",
+            "duration_ms": 0,
+            "event_count": 0,
+            "events": [],
+        } or events[-1].result.metadata["collaboration_trace"]["trace_id"]
         assert retry_events[-1].result is not None
         assert retry_events[-1].result.status.state == TaskState.COMPLETED
 
