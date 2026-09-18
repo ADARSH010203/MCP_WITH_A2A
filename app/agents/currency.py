@@ -93,7 +93,7 @@ class CurrencyAgent:
     ) -> AsyncIterable[dict[str, Any]]:
         config = {"configurable": {"thread_id": session_id}}
 
-        for item in self.graph.stream(
+        async for item in self.graph.astream(
             {"messages": [("user", query)]},
             config,
             stream_mode="values",
