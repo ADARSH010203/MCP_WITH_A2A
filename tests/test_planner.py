@@ -66,3 +66,45 @@ def test_plan_is_serializable_for_a2a_metadata():
     assert payload["agents"] == ["game", "reinforcement", "code"]
     assert payload["handoffs"]["code"] == ["reinforcement", "game"]
     assert payload["steps"][-1]["agent"] == "critic"
+
+
+def test_planner_builds_multiple_dependency_levels():
+    planner = CollaborationPlanner()
+    plan = planner.build(
+        query="multi-stage task",
+        agent_types=["research", "code", "report"],
+        task_focus={
+            "research": "Research the topic.",
+            "code": "Implement the solution.",
+            "report": "Write the final report.",
+        },
+        handoff_targets={
+            "code": ("research",),
+            "report": ("code",),
+        },
+    )
+
+    steps = {step.agent: step for step in plan.steps}
+
+    assert steps["research"].parallel_group == 1
+    assert steps["code"].parallel_group == 2
+    assert steps["code"].depends_on == ("research",)
+    assert steps["report"].parallel_group == 3
+    assert steps["report"].depends_on == ("code",)
+    assert steps["critic"].parallel_group == 4
+
+
+def test_planner_rejects_dependency_cycle():
+    planner = CollaborationPlanner()
+
+    try:
+        planner.build(
+            query="cycle",
+            agent_types=["a", "b"],
+            task_focus={"a": "A", "b": "B"},
+            handoff_targets={"a": ("b",), "b": ("a",)},
+        )
+    except ValueError as exc:
+        assert "cycle" in str(exc)
+    else:
+        raise AssertionError("Expected a dependency cycle to be rejected")
