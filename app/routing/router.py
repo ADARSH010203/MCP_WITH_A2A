@@ -3,6 +3,7 @@
 import asyncio
 import re
 import threading
+import time
 from collections.abc import AsyncIterable, Callable
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any, Protocol
@@ -19,6 +20,7 @@ from app.agents.image import ImageGeneratorAgent
 from app.agents.reinforcement import ReinforcementLearningAgent
 from app.config.settings import settings
 from app.routing.planner import CollaborationPlan, CollaborationPlanner
+from app.routing.tracing import CollaborationTrace
 
 
 class Agent(Protocol):
@@ -349,14 +351,35 @@ class MultiAgent:
         query: str,
         session_id: str,
         budget: CallBudget,
+        trace: CollaborationTrace | None = None,
+        attempt: int = 1,
     ) -> dict[str, Any]:
         if not budget.reserve():
-            return {
+            result = {
                 "agent": agent_type,
                 "status": "budget_exceeded",
                 "content": "Agent call budget exhausted before this specialist could run.",
                 "attempts": 0,
             }
+            if trace:
+                trace.record(
+                    "specialist_call",
+                    agent_type,
+                    "budget_exceeded",
+                    attempt=attempt,
+                    details={"budget_used": budget.used, "budget_limit": budget.limit},
+                )
+            return result
+
+        started = time.perf_counter()
+        if trace:
+            trace.record(
+                "specialist_started",
+                agent_type,
+                "working",
+                attempt=attempt,
+                details={"budget_used": budget.used, "budget_limit": budget.limit},
+            )
 
         executor = ThreadPoolExecutor(
             max_workers=1,
@@ -372,7 +395,7 @@ class MultiAgent:
         except FuturesTimeoutError:
             future.cancel()
             executor.shutdown(wait=False, cancel_futures=True)
-            return {
+            outcome = {
                 "agent": agent_type,
                 "status": "timeout",
                 "content": (
@@ -381,30 +404,58 @@ class MultiAgent:
                 ),
                 "attempts": 1,
             }
+            if trace:
+                trace.record(
+                    "specialist_completed",
+                    agent_type,
+                    "timeout",
+                    (time.perf_counter() - started) * 1000,
+                    attempt=attempt,
+                )
+            return outcome
         except Exception as exc:
             executor.shutdown(wait=False, cancel_futures=True)
-            return {
+            outcome = {
                 "agent": agent_type,
                 "status": "error",
                 "content": f"Specialist failed: {exc}",
                 "attempts": 1,
             }
+            if trace:
+                trace.record(
+                    "specialist_completed",
+                    agent_type,
+                    "error",
+                    (time.perf_counter() - started) * 1000,
+                    attempt=attempt,
+                    details={"error": str(exc)},
+                )
+            return outcome
 
         executor.shutdown(wait=False, cancel_futures=True)
         if not isinstance(result, dict):
-            return {
+            outcome = {
                 "agent": agent_type,
                 "status": "error",
                 "content": "Specialist returned an invalid response.",
                 "attempts": 1,
             }
+        else:
+            outcome = dict(result)
+            outcome.setdefault("agent", agent_type)
+            outcome.setdefault("status", "error")
+            outcome["content"] = str(outcome.get("content", "")).strip()
+            outcome["attempts"] = 1
 
-        response = dict(result)
-        response.setdefault("agent", agent_type)
-        response.setdefault("status", "error")
-        response["content"] = str(response.get("content", "")).strip()
-        response["attempts"] = 1
-        return response
+        if trace:
+            trace.record(
+                "specialist_completed",
+                agent_type,
+                str(outcome["status"]),
+                (time.perf_counter() - started) * 1000,
+                attempt=attempt,
+            )
+        return outcome
 
     def _invoke_with_retry(
         self,
@@ -412,6 +463,7 @@ class MultiAgent:
         prompt: str,
         session_id: str,
         budget: CallBudget,
+        trace: CollaborationTrace | None = None,
     ) -> dict[str, Any]:
         for attempt in range(self.specialist_max_retries + 1):
             outcome = self._invoke_with_timeout(
@@ -421,6 +473,8 @@ class MultiAgent:
                 if attempt == 0
                 else f"{session_id}:{agent_type}:retry-{attempt}",
                 budget,
+                trace=trace,
+                attempt=attempt + 1,
             )
             if outcome["status"] == "budget_exceeded":
                 outcome["attempts"] = attempt
@@ -432,6 +486,13 @@ class MultiAgent:
                 return outcome
             if attempt >= self.specialist_max_retries:
                 return outcome
+            if trace:
+                trace.record(
+                    "specialist_retry",
+                    agent_type,
+                    "retrying",
+                    attempt=attempt + 1,
+                )
 
         return {
             "agent": agent_type,
@@ -445,9 +506,10 @@ class MultiAgent:
         query: str,
         outcomes: list[dict[str, Any]],
         budget: CallBudget,
+        trace: CollaborationTrace | None = None,
     ) -> dict[str, Any]:
         if not budget.reserve():
-            return {
+            result = {
                 "status": "budget_exceeded",
                 "content": (
                     "Critic call budget exhausted. Successful specialist findings "
@@ -455,6 +517,23 @@ class MultiAgent:
                 ),
                 "critic_reviewed": False,
             }
+            if trace:
+                trace.record(
+                    "critic",
+                    "critic",
+                    "budget_exceeded",
+                    details={"budget_used": budget.used, "budget_limit": budget.limit},
+                )
+            return result
+
+        started = time.perf_counter()
+        if trace:
+            trace.record(
+                "critic_started",
+                "critic",
+                "working",
+                details={"budget_used": budget.used, "budget_limit": budget.limit},
+            )
 
         executor = ThreadPoolExecutor(
             max_workers=1,
@@ -470,7 +549,7 @@ class MultiAgent:
         except FuturesTimeoutError:
             future.cancel()
             executor.shutdown(wait=False, cancel_futures=True)
-            return {
+            result = {
                 "status": "timeout",
                 "content": (
                     f"Critic exceeded the "
@@ -479,20 +558,30 @@ class MultiAgent:
                 "critic_reviewed": False,
             }
         except Exception as exc:
-            executor.shutdown(wait=False, cancel_futures=True)
-            return {
+            result = {
                 "status": "error",
                 "content": f"Critic failed: {exc}",
                 "critic_reviewed": False,
             }
+            executor.shutdown(wait=False, cancel_futures=True)
+        else:
+            executor.shutdown(wait=False, cancel_futures=True)
 
-        executor.shutdown(wait=False, cancel_futures=True)
         if not isinstance(result, dict):
-            return {
+            result = {
                 "status": "error",
                 "content": "Critic returned an invalid response.",
                 "critic_reviewed": False,
             }
+
+        if trace:
+            trace.record(
+                "critic_completed",
+                "critic",
+                str(result.get("status", "error")),
+                (time.perf_counter() - started) * 1000,
+                details={"budget_used": budget.used, "budget_limit": budget.limit},
+            )
         return result
 
     async def _stream_agent_with_timeout(
@@ -501,8 +590,25 @@ class MultiAgent:
         query: str,
         session_id: str,
         budget: CallBudget,
+        trace: CollaborationTrace | None = None,
     ) -> AsyncIterable[dict[str, Any]]:
+        started = time.perf_counter()
+        if trace:
+            trace.record(
+                "specialist_started",
+                agent_type,
+                "working",
+                details={"mode": "stream"},
+            )
+
         if not budget.reserve():
+            if trace:
+                trace.record(
+                    "specialist_completed",
+                    agent_type,
+                    "budget_exceeded",
+                    (time.perf_counter() - started) * 1000,
+                )
             yield {
                 "status": "budget_exceeded",
                 "is_task_complete": False,
@@ -522,6 +628,13 @@ class MultiAgent:
         except StopAsyncIteration:
             return
         except asyncio.TimeoutError:
+            if trace:
+                trace.record(
+                    "specialist_completed",
+                    agent_type,
+                    "timeout",
+                    (time.perf_counter() - started) * 1000,
+                )
             yield {
                 "status": "timeout",
                 "is_task_complete": False,
@@ -532,6 +645,13 @@ class MultiAgent:
                 ),
             }
         finally:
+            if trace and not trace.snapshot()["events"][-1]["stage"] == "specialist_completed":
+                trace.record(
+                    "specialist_completed",
+                    agent_type,
+                    "completed",
+                    (time.perf_counter() - started) * 1000,
+                )
             await stream.aclose()
 
     def _build_subtask(
