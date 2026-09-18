@@ -517,6 +517,33 @@ class AgentTaskManager(InMemoryTaskManager):
             data=task.model_dump(exclude_none=True),
         )
 
+    async def _queue_current_task_state(self, task: Task) -> asyncio.Queue:
+        """Create an SSE queue that replays the task's terminal state."""
+        queue = await self.setup_sse_consumer(task.id)
+        for artifact in task.artifacts or []:
+            await queue.put(
+                TaskArtifactUpdateEvent(
+                    id=task.id,
+                    artifact=artifact,
+                    metadata=artifact.metadata,
+                )
+            )
+
+        status_metadata = (
+            task.status.message.metadata
+            if task.status.message is not None
+            else None
+        )
+        await queue.put(
+            TaskStatusUpdateEvent(
+                id=task.id,
+                status=task.status,
+                final=self._is_terminal(task),
+                metadata=status_metadata,
+            )
+        )
+        return queue
+
     async def on_resubscribe_to_task(
         self, request: Any
     ) -> AsyncIterable[SendTaskStreamingResponse] | JSONRPCResponse:
