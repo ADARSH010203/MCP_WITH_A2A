@@ -1,5 +1,6 @@
-from app.mcp.tools.currency import get_exchange_rate
 import pytest
+
+from app.mcp.tools.currency import get_exchange_rate
 
 
 def test_currency_rate_is_deterministic():
