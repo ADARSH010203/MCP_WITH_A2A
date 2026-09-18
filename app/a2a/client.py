@@ -4,7 +4,6 @@ from typing import Any, AsyncIterable
 import httpx
 from httpx_sse import aconnect_sse
 
-from app.config.settings import settings
 from app.a2a.models import (
     A2AClientHTTPError,
     A2AClientJSONError,
