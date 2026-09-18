@@ -67,7 +67,7 @@
   },
   {
     "name": "nlp_plus_code",
-    "query": "Design a transformer NLP model and implement the Python API.",
+    "query": "Design a transformer NLP model and write the Python API.",
     "expected_agents": ["deep_learning", "code"],
     "expected_mode": "multi-agent",
     "expected_handoffs": {
