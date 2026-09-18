@@ -739,10 +739,21 @@ class MultiAgent:
         query: str,
         session_id: str,
         plan: CollaborationPlan,
+        trace: CollaborationTrace,
     ) -> dict[str, Any]:
         agent_types = list(plan.agents)
         handoff_targets = plan.handoffs
         budget = CallBudget(self.max_agent_calls_per_task)
+        trace.record(
+            "plan_created",
+            "planner",
+            "completed",
+            details={
+                "mode": plan.mode,
+                "agents": list(plan.agents),
+                "handoffs": plan.to_dict()["handoffs"],
+            },
+        )
         lead_types = [
             step.agent
             for step in plan.steps
@@ -764,6 +775,12 @@ class MultiAgent:
                 and outcome["status"] == "completed"
                 and outcome["content"]
             ]
+            trace.record(
+                "handoff",
+                target,
+                "started",
+                details={"upstream": [item["agent"] for item in upstream]},
+            )
             outcomes.append(
                 self._run_specialist(
                     target,
@@ -772,6 +789,15 @@ class MultiAgent:
                     upstream_findings=upstream,
                     budget=budget,
                 )
+            )
+            trace.record(
+                "handoff",
+                target,
+                "completed",
+                details={
+                    "upstream": [item["agent"] for item in upstream],
+                    "status": outcomes[-1]["status"],
+                },
             )
 
         successful = [
@@ -827,6 +853,7 @@ class MultiAgent:
                 "agents_used": agent_types,
                 "critic_reviewed": False,
                 "collaboration_plan": plan.to_dict(),
+                "collaboration_trace": trace.snapshot(),
             }
         if needs_input and synthesis.get("status") == "completed":
             synthesis["content"] = (
@@ -843,10 +870,24 @@ class MultiAgent:
             "agents_used": agent_types,
             "critic_reviewed": synthesis.get("critic_reviewed", False),
             "collaboration_plan": plan.to_dict(),
+            "collaboration_trace": trace.snapshot(),
         }
 
     def invoke(self, query: str, session_id: str) -> dict[str, Any]:
+        started = time.perf_counter()
+        trace = CollaborationTrace()
         plan = self.build_collaboration_plan(query)
+        trace.record(
+            "plan_created",
+            "planner",
+            "completed",
+            details={
+                "mode": plan.mode,
+                "agents": list(plan.agents),
+                "handoffs": plan.to_dict()["handoffs"],
+                "rationale": plan.rationale,
+            },
+        )
         budget = CallBudget(self.max_agent_calls_per_task)
 
         if plan.mode == "single-agent":
@@ -856,6 +897,7 @@ class MultiAgent:
                 query,
                 session_id,
                 budget,
+                trace=trace,
             )
             result.setdefault("agents_used", [agent_type])
             result.setdefault("collaboration_mode", "single-agent")
@@ -866,15 +908,42 @@ class MultiAgent:
                 result.get("status") == "input_required",
             )
             result.setdefault("collaboration_plan", plan.to_dict())
+            trace.record(
+                "request_completed",
+                "coordinator",
+                str(result.get("status", "error")),
+                (time.perf_counter() - started) * 1000,
+            )
+            result["collaboration_trace"] = trace.snapshot()
             return result
 
-        result = self._run_collaboration(query, session_id, plan)
+        result = self._run_collaboration(query, session_id, plan, trace)
         result.setdefault("collaboration_mode", "multi-agent")
+        trace.record(
+            "request_completed",
+            "coordinator",
+            str(result.get("status", "error")),
+            (time.perf_counter() - started) * 1000,
+        )
+        result["collaboration_trace"] = trace.snapshot()
         return result
 
     async def stream(self, query: str, session_id: str) -> AsyncIterable[dict[str, Any]]:
+        started = time.perf_counter()
+        trace = CollaborationTrace()
         plan = self.build_collaboration_plan(query)
         agent_types = list(plan.agents)
+        trace.record(
+            "plan_created",
+            "planner",
+            "completed",
+            details={
+                "mode": plan.mode,
+                "agents": agent_types,
+                "handoffs": plan.to_dict()["handoffs"],
+                "rationale": plan.rationale,
+            },
+        )
         budget = CallBudget(self.max_agent_calls_per_task)
 
         if plan.mode == "single-agent":
@@ -889,6 +958,13 @@ class MultiAgent:
                 response.setdefault("collaboration_mode", "single-agent")
                 response.setdefault("critic_reviewed", False)
                 response.setdefault("collaboration_plan", plan.to_dict())
+                trace.record(
+                    "request_completed",
+                    "coordinator",
+                    str(response.get("status", "completed")),
+                    (time.perf_counter() - started) * 1000,
+                )
+                response["collaboration_trace"] = trace.snapshot()
                 yield response
             return
 
@@ -904,6 +980,7 @@ class MultiAgent:
             "collaboration_plan": plan.to_dict(),
             "agents_used": agent_types,
             "collaboration_mode": "multi-agent",
+            "collaboration_trace": trace.snapshot(),
         }
 
         handoff_targets = plan.handoffs
@@ -940,6 +1017,7 @@ class MultiAgent:
                     "agents_used": agent_types,
                     "collaboration_mode": "multi-agent",
                     "collaboration_plan": plan.to_dict(),
+                    "collaboration_trace": trace.snapshot(),
                 }
             else:
                 yield {
@@ -962,6 +1040,12 @@ class MultiAgent:
                 and outcome["status"] == "completed"
                 and outcome["content"]
             ]
+            trace.record(
+                "handoff",
+                target,
+                "started",
+                details={"upstream": [item["agent"] for item in upstream]},
+            )
             outcome = await asyncio.to_thread(
                 self._run_specialist,
                 target,
@@ -969,6 +1053,16 @@ class MultiAgent:
                 session_id,
                 upstream,
                 budget,
+                trace,
+            )
+            trace.record(
+                "handoff",
+                target,
+                "completed",
+                details={
+                    "upstream": [item["agent"] for item in upstream],
+                    "status": outcome["status"],
+                },
             )
             outcomes.append(outcome)
             yield {
@@ -1001,6 +1095,7 @@ class MultiAgent:
             query,
             outcomes,
             budget,
+            trace,
         )
 
         if synthesis.get("status") in {"budget_exceeded", "timeout", "error"}:
@@ -1028,6 +1123,7 @@ class MultiAgent:
                 "collaboration_mode": "multi-agent",
                 "critic_reviewed": False,
                 "collaboration_plan": plan.to_dict(),
+                "collaboration_trace": trace.snapshot(),
             }
             return
 
@@ -1039,4 +1135,5 @@ class MultiAgent:
             "agents_used": agent_types,
             "critic_reviewed": synthesis.get("critic_reviewed", False),
             "collaboration_plan": plan.to_dict(),
+            "collaboration_trace": trace.snapshot(),
         }
