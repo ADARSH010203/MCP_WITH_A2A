@@ -221,7 +221,7 @@ class AgentTaskManager(InMemoryTaskManager):
                 error=InternalError(message="An error occurred while streaming the response"),
             )
 
-    def _process_agent_response(
+    async def _process_agent_response(
         self, request: SendTaskRequest, agent_response: dict[str, Any]
     ) -> SendTaskResponse:
         content = str(agent_response.get("content", "")).strip()
