@@ -1,5 +1,21 @@
-.
-__init__.py
-__pycache__
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+
+# Environment and secrets
 .env
-.venv
+.env.*
+!.env.example
+
+# Local/editor files
+.vscode/
+.idea/
+*.swp
+
+# Generated/local assets
+*.log
