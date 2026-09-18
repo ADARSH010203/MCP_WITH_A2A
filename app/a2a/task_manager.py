@@ -46,6 +46,9 @@ class AgentTaskManager(InMemoryTaskManager):
         self.agent = agent
         self.notification_sender_auth = notification_sender_auth
         self.streaming_tasks: dict[str, asyncio.Task[None]] = {}
+        self.execution_semaphore = asyncio.Semaphore(
+            max(1, settings.a2a_max_concurrent_tasks)
+        )
 
     async def on_set_task_push_notification(self, request: Any):
         config = request.params.pushNotificationConfig
@@ -103,7 +106,11 @@ class AgentTaskManager(InMemoryTaskManager):
         query = self._get_user_query(task_send_params)
 
         try:
-            async for item in self.agent.stream(query, task_send_params.sessionId):
+            async with self.execution_semaphore:
+                async for item in self.agent.stream(
+                    query,
+                    task_send_params.sessionId,
+                ):
                 status_value = item.get("status", "completed")
                 is_complete = item.get("is_task_complete", False)
                 needs_input = item.get("require_user_input", False)
