@@ -9,6 +9,7 @@ from app.a2a import utils
 from app.a2a.base_task_manager import InMemoryTaskManager
 from app.a2a.models import (
     Artifact,
+    CancelTaskResponse,
     InternalError,
     InvalidParamsError,
     JSONRPCResponse,
@@ -18,7 +19,6 @@ from app.a2a.models import (
     SendTaskResponse,
     SendTaskStreamingRequest,
     SendTaskStreamingResponse,
-    CancelTaskResponse,
     Task,
     TaskArtifactUpdateEvent,
     TaskNotCancelableError,
