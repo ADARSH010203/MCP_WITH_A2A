@@ -1,95 +1,91 @@
-from typing import Union
+"""Route user requests to the appropriate specialized agent."""
+
+import re
+from typing import AsyncIterable, Callable
+
 from custom_types import Message, Task
 from agent import CurrencyAgent
-from specialized_agents import DeepLearningAgent, DsaAgent, EmailWriterAgent, CodeGeneratorAgent, ImageGeneratorAgent, GameGeneratorAgent, RainformentAgent
+from specialized_agents import (
+    CodeGeneratorAgent,
+    DeepLearningAgent,
+    DsaAgent,
+    EmailWriterAgent,
+    GameGeneratorAgent,
+    ImageGeneratorAgent,
+    RainformentAgent,
+)
+
 
 class MultiAgent:
-    """A wrapper class that manages multiple specialized agents and routes requests to the appropriate one."""
-    
-    def __init__(self):
-        self.currency_agent = CurrencyAgent()
-        self.email_agent = EmailWriterAgent()
-        self.code_agent = CodeGeneratorAgent()
-        self.image_agent = ImageGeneratorAgent()
-        self.game_agent = GameGeneratorAgent()
-        self.deep_learning_agent = DeepLearningAgent()
-        self.rainforment_agent = RainformentAgent()
-        self.dsa_agent = DsaAgent()
-        
-        
+    """Own and route requests to the specialized agents in this demo."""
+
+    ROUTES: tuple[tuple[str, tuple[str, ...]], ...] = (
+        ("currency", ("currency", "exchange rate", "exchange rates", "forex", "usd", "eur", "gbp")),
+        ("email", ("email", "mail", "draft an email", "professional message", "subject line")),
+        ("image", ("image", "picture", "photo", "illustration", "generate an image")),
+        ("game", ("game", "gameplay", "level design", "character design", "game mechanics")),
+        ("deep_learning", ("deep learning", "neural network", "neural networks", "model training", "cnn", "transformer")),
+        ("rainforment", ("reinforcement learning", "reinforcement", "q-learning", "policy gradient", "game ai")),
+        ("dsa", ("dsa", "data structures", "binary search", "sorting", "shortest path", "dynamic programming", "backtracking")),
+        ("code", ("code", "program", "function", "class", "script", "algorithm")),
+    )
+
+    def __init__(self) -> None:
+        self.agents: dict[str, object] = {
+            "currency": CurrencyAgent(),
+            "email": EmailWriterAgent(),
+            "code": CodeGeneratorAgent(),
+            "image": ImageGeneratorAgent(),
+            "game": GameGeneratorAgent(),
+            "deep_learning": DeepLearningAgent(),
+            "rainforment": RainformentAgent(),
+            "dsa": DsaAgent(),
+        }
+
+    @staticmethod
+    def _normalize(text: str) -> str:
+        return re.sub(r"\s+", " ", text.casefold()).strip()
+
     def _detect_agent_type(self, message: Message) -> str:
-        """Determine which agent should handle the request based on the message content."""
-        text = message.parts[0].text.lower()
-        
-        # Simple keyword-based routing
-        if any(word in text for word in ["currency", "exchange rate", "convert", "usd", "eur", "gbp"]):
-            return "currency"
-        elif any(word in text for word in ["email", "write", "draft", "message", "subject line"]):
-            return "email"
-        elif any(word in text for word in ["code", "program", "function", "class", "algorithm"]):
+        """Select an agent using deterministic keyword matching.
+
+        More specific domains are checked before generic coding terms such as
+        'algorithm' and 'model', reducing accidental routing to the code agent.
+        """
+        if not message.parts:
             return "code"
-        elif any(word in text for word in ["image", "picture", "photo", "art", "generate image"]):
-            return "image"
-        elif any(word in text for word in ["game", "gameplay", "level design", "character", "mechanics"]):
-            return "game"
-        elif any(word in text for word in ["deep learning", "neural network", "model training", "AI"]):
-            return "deep_learning"
-        elif any(word in text for word in ["rainforment", "reinforcement learning", "agent training","game AI"]):
-            return "rainforment"
-        elif any(word in text for word in ["dsa", "data structures", "algorithms", "sorting", "searching", "graph", "tree","dynamic programming", "greedy", "divide and conquer", "backtracking"]):
-            return "dsa"
-        
-        # Default to email writer if can't determine
-        return "email"
-    
-    def invoke(self, query: str, session_id: str) -> Union[str, Task]:
-        """Route the request to the appropriate agent and return its response."""
-        message = Message(role="user", parts=[{"type": "text", "text": query}])
+
+        text = self._normalize(message.parts[0].text)
+
+        for agent_type, keywords in self.ROUTES:
+            if any(keyword in text for keyword in keywords):
+                return agent_type
+
+        # The code agent is a more neutral fallback than the previous email fallback.
+        return "code"
+
+    def _get_agent(self, agent_type: str):
+        try:
+            return self.agents[agent_type]
+        except KeyError as exc:
+            raise ValueError(f"Unsupported agent type: {agent_type}") from exc
+
+    def invoke(self, query: str, session_id: str) -> Task | dict:
+        message = Message(
+            role="user",
+            parts=[{"type": "text", "text": query}],
+        )
         agent_type = self._detect_agent_type(message)
-        
-        if agent_type == "currency":
-            return self.currency_agent.invoke(query, session_id)
-        elif agent_type == "email":
-            return self.email_agent.invoke(query, session_id)
-        elif agent_type == "code":
-            return self.code_agent.invoke(query, session_id)
-        elif agent_type == "image":
-            return self.image_agent.invoke(query, session_id)
-        elif agent_type == "game":
-            return self.game_agent.invoke(query, session_id)
-        elif agent_type == "deep_learning":
-            return self.deep_learning_agent.invoke(query, session_id)
-        elif agent_type == "rainforment":
-            return self.rainforment_agent.invoke(query, session_id)
-        elif agent_type == "dsa":
-            return self.dsa_agent.invoke(query, session_id)
-        
-    async def stream(self, query: str, session_id: str):
-        """Stream responses from the appropriate agent."""
-        message = Message(role="user", parts=[{"type": "text", "text": query}])
+        agent = self._get_agent(agent_type)
+        return agent.invoke(query, session_id)
+
+    async def stream(self, query: str, session_id: str) -> AsyncIterable[dict]:
+        message = Message(
+            role="user",
+            parts=[{"type": "text", "text": query}],
+        )
         agent_type = self._detect_agent_type(message)
-        
-        if agent_type == "currency":
-            async for response in self.currency_agent.stream(query, session_id):
-                yield response
-        elif agent_type == "email":
-            async for response in self.email_agent.stream(query, session_id):
-                yield response
-        elif agent_type == "code":
-            async for response in self.code_agent.stream(query, session_id):
-                yield response
-        elif agent_type == "image":
-            async for response in self.image_agent.stream(query, session_id):
-                yield response
-        elif agent_type == "game":
-            async for response in self.game_agent.stream(query, session_id):
-                yield response
-        elif agent_type == "deep_learning":
-            async for response in self.deep_learning_agent.stream(query, session_id):
-                yield response
-        elif agent_type == "rainforment":
-            async for response in self.rainforment_agent.stream(query, session_id):
-                yield response
-        elif agent_type == "dsa":
-            async for response in self.dsa_agent.stream(query, session_id):
-                yield response
+        agent = self._get_agent(agent_type)
+
+        async for response in agent.stream(query, session_id):
+            yield response
