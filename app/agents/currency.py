@@ -67,6 +67,7 @@ class CurrencyAgent:
     SYSTEM_INSTRUCTION = (
         "You are a specialized assistant for currency conversions. "
         "Use the 'get_exchange_rate' tool for currency exchange-rate questions. "
+        "The tool returns daily reference rates; do not describe them as guaranteed live-trading prices. "
         "Do not answer unrelated topics. "
         "Set response status to input_required when more information is needed, "
         "error when processing fails, and completed when the request is complete."
