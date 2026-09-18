@@ -226,6 +226,31 @@ class AgentTaskManager(InMemoryTaskManager):
         ):
             return utils.new_incompatible_types_error(request.id)
 
+        if not params.message.parts:
+            return JSONRPCResponse(
+                id=request.id,
+                error=InvalidParamsError(message="A task message is required"),
+            )
+
+        first_part = params.message.parts[0]
+        if isinstance(first_part, TextPart):
+            query = first_part.text.strip()
+            if not query:
+                return JSONRPCResponse(
+                    id=request.id,
+                    error=InvalidParamsError(message="Task message cannot be empty"),
+                )
+            if len(query) > settings.a2a_max_input_chars:
+                return JSONRPCResponse(
+                    id=request.id,
+                    error=InvalidParamsError(
+                        message=(
+                            "Task message is too large; "
+                            f"maximum is {settings.a2a_max_input_chars} characters"
+                        )
+                    ),
+                )
+
         if params.pushNotification and not params.pushNotification.url:
             return JSONRPCResponse(
                 id=request.id,
