@@ -128,14 +128,14 @@ class HostAgent:
                 )
                 agents_used = metadata.get("agents_used", [])
                 mode = metadata.get("collaboration_mode", "single-agent")
-                verified = metadata.get("verified", False)
+                reviewed = metadata.get("critic_reviewed", False)
 
                 if mode == "multi-agent":
                     agents_text = ", ".join(agents_used) or "multiple specialists"
-                    verification = "completed" if verified else "not completed"
+                    review = "completed" if reviewed else "not completed"
                     return (
                         f"Task {task_id} completed using {agents_text}. "
-                        f"Critic verification: {verification}."
+                        f"Critic review: {review}."
                     )
                 return (
                     f"Task {task_id} completed by "
