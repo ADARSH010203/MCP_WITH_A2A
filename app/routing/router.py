@@ -436,6 +436,61 @@ class MultiAgent:
             "attempts": self.specialist_max_retries + 1,
         }
 
+    def _synthesize_with_timeout(
+        self,
+        query: str,
+        outcomes: list[dict[str, Any]],
+        budget: CallBudget,
+    ) -> dict[str, Any]:
+        if not budget.reserve():
+            return {
+                "status": "budget_exceeded",
+                "content": (
+                    "Critic call budget exhausted. Successful specialist findings "
+                    "can be returned without synthesis."
+                ),
+                "critic_reviewed": False,
+            }
+
+        executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="critic-call",
+        )
+        future = executor.submit(
+            self._get_critic().synthesize,
+            query,
+            outcomes,
+        )
+        try:
+            result = future.result(timeout=self.specialist_timeout_seconds)
+        except FuturesTimeoutError:
+            future.cancel()
+            executor.shutdown(wait=False, cancel_futures=True)
+            return {
+                "status": "timeout",
+                "content": (
+                    f"Critic exceeded the "
+                    f"{self.specialist_timeout_seconds:g}s timeout."
+                ),
+                "critic_reviewed": False,
+            }
+        except Exception as exc:
+            executor.shutdown(wait=False, cancel_futures=True)
+            return {
+                "status": "error",
+                "content": f"Critic failed: {exc}",
+                "critic_reviewed": False,
+            }
+
+        executor.shutdown(wait=False, cancel_futures=True)
+        if not isinstance(result, dict):
+            return {
+                "status": "error",
+                "content": "Critic returned an invalid response.",
+                "critic_reviewed": False,
+            }
+        return result
+
     async def _stream_agent_with_timeout(
         self,
         agent_type: str,
@@ -646,7 +701,7 @@ class MultiAgent:
                 "collaboration_plan": plan.to_dict(),
             }
 
-        synthesis = self._get_critic().synthesize(query, outcomes)
+        synthesis = self._synthesize_with_timeout(query, outcomes, budget)
         if needs_input and synthesis.get("status") == "completed":
             synthesis["content"] = (
                 synthesis.get("content", "")
@@ -666,13 +721,24 @@ class MultiAgent:
 
     def invoke(self, query: str, session_id: str) -> dict[str, Any]:
         plan = self.build_collaboration_plan(query)
+        budget = CallBudget(self.max_agent_calls_per_task)
 
         if plan.mode == "single-agent":
             agent_type = plan.agents[0]
-            result = self._get_agent(agent_type).invoke(query, session_id)
+            result = self._invoke_with_retry(
+                agent_type,
+                query,
+                session_id,
+                budget,
+            )
             result.setdefault("agents_used", [agent_type])
             result.setdefault("collaboration_mode", "single-agent")
             result.setdefault("critic_reviewed", False)
+            result.setdefault("is_task_complete", result.get("status") == "completed")
+            result.setdefault(
+                "require_user_input",
+                result.get("status") == "input_required",
+            )
             result.setdefault("collaboration_plan", plan.to_dict())
             return result
 
