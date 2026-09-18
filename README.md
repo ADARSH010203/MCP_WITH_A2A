@@ -188,7 +188,7 @@ Never commit a real API key.
 
 ### Professional documentation site
 
-A static documentation and demo site is included under `docs/`. It presents the real project architecture, specialist agents, A2A/MCP boundaries, collaboration tracing, evaluation metrics, and a small browser-based A2A request playground.
+A static documentation and demo site is included under `docs/`. The A2A browser playground is compatible with the API when `A2A_CORS_ORIGINS` contains the exact origin serving the site; the default configuration keeps browser cross-origin access disabled. It presents the real project architecture, specialist agents, A2A/MCP boundaries, collaboration tracing, evaluation metrics, and a small browser-based A2A request playground.
 
 Open `docs/index.html` directly for a local preview, or publish the `docs/` directory with GitHub Pages for a public project site. The browser playground can call a running A2A server when the server is configured to allow the page's origin through CORS.
 
