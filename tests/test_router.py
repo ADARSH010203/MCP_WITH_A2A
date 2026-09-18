@@ -494,3 +494,40 @@ def test_router_rejects_unknown_planner_agent():
         assert "Unknown agent type" in str(exc)
     else:
         raise AssertionError("Expected unknown specialist to be rejected")
+
+
+class ErrorStreamingAgent(FakeAgent):
+    async def stream(self, query: str, session_id: str):
+        self.calls.append((query, session_id))
+        yield {
+            "status": "error",
+            "is_task_complete": False,
+            "require_user_input": False,
+            "content": "failed",
+        }
+
+
+def test_streaming_error_is_reflected_in_trace():
+    async def scenario():
+        agents = fake_agents()
+        agents["code"] = ErrorStreamingAgent("code")
+        router = MultiAgent(agents=agents)
+
+        events = [
+            event
+            async for event in router.stream(
+                "Write Python code",
+                "session-stream-error-trace",
+            )
+        ]
+
+        final = events[-1]
+        specialist_events = [
+            event
+            for event in final["collaboration_trace"]["events"]
+            if event["stage"] == "specialist_completed"
+        ]
+        assert specialist_events[-1]["status"] == "error"
+        assert final["collaboration_trace"]["events"][-1]["stage"] == "request_completed"
+
+    asyncio.run(scenario())
