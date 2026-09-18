@@ -78,8 +78,17 @@ def initialize_host_agent():
     try:
         st.session_state.host_agent = HostAgent(st.session_state.remote_urls)
         st.session_state.host_agent.initialize()
-        st.success("Host agent initialized successfully!")
-        st.session_state.messages = []  # Clear previous messages
+        errors = st.session_state.host_agent.initialization_errors
+        if errors:
+            st.warning(
+                "Some remote agents could not be connected. "
+                "Available agents can still be used."
+            )
+            for url, error in errors.items():
+                st.caption(f"{url}: {error}")
+        else:
+            st.success("All remote agents connected successfully!")
+        st.session_state.messages = []
     except Exception as e:
         st.error(f"Failed to initialize host agent: {str(e)}")
 
