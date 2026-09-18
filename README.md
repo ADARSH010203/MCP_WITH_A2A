@@ -120,6 +120,7 @@ Create a local `.env` from `.env.example`:
 GROQ_API_KEY=your_groq_api_key_here
 GROQ_MODEL=meta-llama/llama-4-scout-17b-16e-instruct
 MCP_URL=http://127.0.0.1:3000/sse
+A2A_TASK_DB_PATH=.data/a2a_tasks.db
 ```
 
 Never commit a real API key.
@@ -173,18 +174,37 @@ ruff check app host frontend scripts tests
 - The A2A client uses request timeouts and validates JSON responses.
 - Push-notification URLs are verified before notification configuration is stored.
 - Push notifications are signed with RSA-based JWTs and include a request-body digest.
-- Task state is kept in memory for the demo; it is not a durable production datastore.
+- A2A task state is persisted locally in SQLite by default, while live streaming subscribers remain process-local.
 - The router is deterministic and uses word-boundary matching for single-word keywords to reduce accidental matches.
+- Duplicate task IDs are idempotent; reusing an ID for a different session or message is rejected.
+- Streaming tasks can be canceled while their worker is active.
+- Push-notification callback URLs require HTTPS by default and private/loopback destinations are blocked.
+- Push notification JWTs include a unique ID and body digest; receivers reject reused tokens within the validity window.
 - The currency tool is deliberately non-live and should not be used for financial decisions.
 
 ## Limitations
 
 - The currency rate is a fixed demonstration value, not a live market rate.
 - Agent routing is keyword-based, so ambiguous requests may be routed to the fallback code agent.
-- Task storage is process-local and is lost when the server restarts.
+- SQLite persistence protects task records across a single server restart, but it does not provide distributed task state across multiple server processes.
+- Live SSE subscriptions and running workers are still process-local; an active task cannot be resumed automatically after a server restart.
+- Agent conversation memory is still in-process via LangGraph's memory checkpointer.
 - The default agent setup requires a valid Groq API key.
 - The current project is a demonstration architecture rather than a production-hardened distributed platform.
 
+## Task Lifecycle
+
+```text
+SUBMITTED
+   ↓
+WORKING
+   ├──→ INPUT_REQUIRED
+   ├──→ COMPLETED
+   ├──→ FAILED
+   └──→ CANCELED
+```
+
+Tasks with the same ID and the same session/message are treated as retries and do not start a second agent execution. Streaming clients can reconnect to an active in-process worker or replay a terminal task's final state.
 ## Example Requests
 
 - "What is the exchange rate between USD and EUR?"
