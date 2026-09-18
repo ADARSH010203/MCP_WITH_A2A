@@ -13,9 +13,9 @@ from google.genai import types # type: ignore
 from google.adk.agents.run_config import RunConfig # type: ignore
 from google.adk.sessions.in_memory_session_service import InMemorySessionService # type: ignore
 
-from card_resolver import A2ACardResolver
-from client import A2AClient
-from custom_types import (
+from app.a2a.card_resolver import A2ACardResolver
+from app.a2a.client import A2AClient
+from app.a2a.models import (
     AgentCard,
     DataPart,
     Message,
