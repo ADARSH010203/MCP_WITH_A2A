@@ -83,6 +83,13 @@ def build_agent_card(host: str, port: int) -> AgentCard:
             tags=["data structures", "algorithms", "dynamic programming"],
             examples=["Find the shortest path using Dijkstra's algorithm."],
         ),
+        AgentSkill(
+            id="multi_agent_collaboration",
+            name="Multi-Agent Collaboration",
+            description="Coordinates multiple specialists and a critic for cross-domain tasks.",
+            tags=["multi-agent", "orchestration", "coordination", "critic"],
+            examples=["Build a Python CNN image-classification pipeline and explain the design."],
+        ),
     ]
 
     return AgentCard(
