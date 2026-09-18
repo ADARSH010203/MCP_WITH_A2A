@@ -17,6 +17,7 @@ from app.agents.email import EmailWriterAgent
 from app.agents.game import GameGeneratorAgent
 from app.agents.image import ImageGeneratorAgent
 from app.agents.reinforcement import ReinforcementLearningAgent
+from app.config.settings import settings
 
 
 class Agent(Protocol):
@@ -185,6 +186,7 @@ class MultiAgent:
         )
         self.critic = critic
         self.critic_factory = critic_factory
+        self.max_collaborative_agents = max(1, settings.a2a_max_collaborative_agents)
         self._agent_lock = threading.Lock()
 
     @staticmethod
@@ -223,10 +225,15 @@ class MultiAgent:
             return "code"
         return max(scores, key=scores.get)
 
-    def select_agent_types(self, query: str, max_agents: int = 3) -> list[str]:
+    def select_agent_types(
+        self,
+        query: str,
+        max_agents: int | None = None,
+    ) -> list[str]:
         """Select one specialist or a small set of specialists for collaboration."""
         text = self._normalize(query)
         scores = self._score_agent_types(text)
+        limit = max(1, max_agents or self.max_collaborative_agents)
 
         if not scores:
             return ["code"]
@@ -238,7 +245,7 @@ class MultiAgent:
                 key=lambda item: (-item[1], item[0]),
             )
         ]
-        selected = ranked[: max(1, max_agents)]
+        selected = ranked[:limit]
 
         if len(selected) == 1:
             return selected
@@ -360,15 +367,24 @@ class MultiAgent:
         agent_types = self.select_agent_types(query)
 
         if len(agent_types) == 1:
-            return self._route(query).invoke(query, session_id)
+            result = self._route(query).invoke(query, session_id)
+            result.setdefault("agents_used", [agent_types[0]])
+            result.setdefault("collaboration_mode", "single-agent")
+            result.setdefault("verified", False)
+            return result
 
-        return self._run_collaboration(query, session_id, agent_types)
+        result = self._run_collaboration(query, session_id, agent_types)
+        result.setdefault("collaboration_mode", "multi-agent")
+        return result
 
     async def stream(self, query: str, session_id: str) -> AsyncIterable[dict[str, Any]]:
         agent_types = self.select_agent_types(query)
 
         if len(agent_types) == 1:
             async for response in self._route(query).stream(query, session_id):
+                response.setdefault("agents_used", [agent_types[0]])
+                response.setdefault("collaboration_mode", "single-agent")
+                response.setdefault("verified", False)
                 yield response
             return
 
@@ -381,6 +397,8 @@ class MultiAgent:
                 + ", ".join(agent_types)
                 + "."
             ),
+            "agents_used": agent_types,
+            "collaboration_mode": "multi-agent",
         }
 
         tasks = [
@@ -405,6 +423,8 @@ class MultiAgent:
                     "content": (
                         f"{outcome['agent']} specialist completed its analysis."
                     ),
+                    "agents_used": agent_types,
+                    "collaboration_mode": "multi-agent",
                 }
             else:
                 yield {
@@ -414,6 +434,8 @@ class MultiAgent:
                     "content": (
                         f"{outcome['agent']} specialist did not return a usable result."
                     ),
+                    "agents_used": agent_types,
+                    "collaboration_mode": "multi-agent",
                 }
 
         yield {
