@@ -117,6 +117,10 @@ MCP_WITH_A2A/
 │   └── cli.py
 ├── frontend/
 │   └── streamlit_app.py
+├── docs/
+│   ├── index.html
+│   ├── styles.css
+│   └── app.js
 ├── scripts/
 │   ├── run_a2a_server.py
 │   ├── run_mcp_server.py
@@ -136,7 +140,9 @@ MCP_WITH_A2A/
 ├── .env.example
 ├── Dockerfile
 ├── requirements.txt
-└── pyproject.toml
+├── pyproject.toml
+├── Dockerfile
+└── docker-compose.yml
 ```
 
 ## Setup
