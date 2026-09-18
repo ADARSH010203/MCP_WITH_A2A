@@ -35,10 +35,13 @@ jobs:
         run: python -m pip check
 
       - name: Compile Python sources
-        run: python -m compileall -q app host frontend scripts tests
+        run: python -m compileall -q app host frontend scripts experiments tests
 
       - name: Lint
-        run: ruff check app host frontend scripts tests
+        run: ruff check app host frontend scripts experiments tests
 
       - name: Test
         run: pytest -q --tb=short
+
+      - name: Evaluate routing benchmark
+        run: python -m experiments.run_evaluation --min-routing-accuracy 1.0
