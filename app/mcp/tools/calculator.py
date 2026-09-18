@@ -45,7 +45,7 @@ def _evaluate(node: ast.AST) -> float:
 
 
 def calculate(expression: str) -> dict[str, Any]:
-    """Evaluate a bounded arithmetic expression without using eval()."""
+    """Evaluate a bounded arithmetic expression without dynamic code evaluation."""
     clean_expression = expression.strip()
     if not clean_expression:
         raise ValueError("expression is required")
