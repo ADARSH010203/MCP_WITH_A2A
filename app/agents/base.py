@@ -6,6 +6,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel
 from app.config.constants import SUPPORTED_CONTENT_TYPES
+from app.config.settings import settings
 
 _MEMORY = MemorySaver()
 
@@ -19,7 +20,7 @@ class BaseAgent:
     supported_content_types = SUPPORTED_CONTENT_TYPES
 
     def __init__(self) -> None:
-        self.model = ChatGroq(model="meta-llama/llama-4-scout-17b-16e-instruct", max_tokens=2048)
+        self.model = ChatGroq(model=settings.groq_model, max_tokens=2048)
         self.graph = create_react_agent(self.model, tools=[], checkpointer=_MEMORY,
                                         prompt=self.SYSTEM_INSTRUCTION,
                                         response_format=ResponseFormat)
