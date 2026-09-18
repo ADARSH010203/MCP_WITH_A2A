@@ -73,7 +73,11 @@ class AgentTaskManager(InMemoryTaskManager):
             return CancelTaskResponse(id=request.id, error=TaskNotCancelableError())
 
         running_task = self.streaming_tasks.get(task_id)
-        if running_task is None:
+        if running_task is None or running_task.done():
+            return CancelTaskResponse(id=request.id, error=TaskNotCancelableError())
+
+        current_task = await self.get_stored_task(task_id)
+        if current_task is None or self._is_terminal(current_task):
             return CancelTaskResponse(id=request.id, error=TaskNotCancelableError())
 
         running_task.cancel()
