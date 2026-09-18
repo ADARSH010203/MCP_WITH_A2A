@@ -58,7 +58,12 @@ class CriticAgent:
         failed = [
             str(item.get("agent"))
             for item in contributions
-            if item.get("status") != "completed"
+            if item.get("status") == "error"
+        ]
+        needs_input = [
+            str(item.get("agent"))
+            for item in contributions
+            if item.get("status") == "input_required"
         ]
 
         prompt = (
@@ -72,6 +77,12 @@ class CriticAgent:
                 "\n\nSpecialists that failed or returned no usable result: "
                 + ", ".join(failed)
                 + ". Do not fabricate their findings."
+            )
+        if needs_input:
+            prompt += (
+                "\n\nSpecialists that require more user input: "
+                + ", ".join(needs_input)
+                + ". Do not assume the missing information."
             )
 
         try:
