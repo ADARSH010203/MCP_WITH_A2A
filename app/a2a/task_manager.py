@@ -18,8 +18,11 @@ from app.a2a.models import (
     SendTaskResponse,
     SendTaskStreamingRequest,
     SendTaskStreamingResponse,
+    CancelTaskResponse,
     Task,
     TaskArtifactUpdateEvent,
+    TaskNotCancelableError,
+    TaskNotFoundError,
     TaskSendParams,
     TaskState,
     TaskStatus,
@@ -37,25 +40,18 @@ class AgentTaskManager(InMemoryTaskManager):
         self.notification_sender_auth = notification_sender_auth
         self.streaming_tasks: dict[str, asyncio.Task[None]] = {}
 
-
     async def on_cancel_task(self, request: Any):
         task_id = request.params.id
         task = await self.get_stored_task(task_id)
 
         if task is None:
-            from app.a2a.models import CancelTaskResponse, TaskNotFoundError
-
             return CancelTaskResponse(id=request.id, error=TaskNotFoundError())
 
         if self._is_terminal(task):
-            from app.a2a.models import CancelTaskResponse, TaskNotCancelableError
-
             return CancelTaskResponse(id=request.id, error=TaskNotCancelableError())
 
         running_task = self.streaming_tasks.get(task_id)
         if running_task is None:
-            from app.a2a.models import CancelTaskResponse, TaskNotCancelableError
-
             return CancelTaskResponse(id=request.id, error=TaskNotCancelableError())
 
         running_task.cancel()
@@ -81,8 +77,6 @@ class AgentTaskManager(InMemoryTaskManager):
                 final=True,
             ),
         )
-
-        from app.a2a.models import CancelTaskResponse
 
         return CancelTaskResponse(id=request.id, result=task)
 
