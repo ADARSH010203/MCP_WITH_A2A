@@ -210,18 +210,29 @@ class MultiAgent:
             return keyword in text
         return re.search(rf"\b{re.escape(keyword)}\b", text) is not None
 
+    PRIORITY_PHRASES: tuple[tuple[str, str], ...] = (
+        ("deep_learning", "graph neural network"),
+        ("deep_learning", "image classification"),
+        ("reinforcement", "deep reinforcement learning"),
+        ("dsa", "graph algorithm"),
+        ("dsa", "graph traversal"),
+    )
+
     @classmethod
     def _score_agent_types(cls, text: str) -> dict[str, int]:
-        scores: dict[str, int] = {}
         for agent_type, keywords in cls.ROUTES:
             score = sum(
                 2 if " " in keyword or "-" in keyword else 1
                 for keyword in keywords
                 if cls._keyword_matches(text, keyword)
             )
-            if score:
-                scores[agent_type] = score
-        return scores
+            scores[agent_type] = score
+
+        for agent_type, phrase in cls.PRIORITY_PHRASES:
+            if cls._keyword_matches(text, phrase):
+                scores[agent_type] = scores.get(agent_type, 0) + 3
+
+        return {agent_type: score for agent_type, score in scores.items() if score > 0}
 
     def _detect_agent_type(self, message: Message) -> str:
         if not message.parts:
