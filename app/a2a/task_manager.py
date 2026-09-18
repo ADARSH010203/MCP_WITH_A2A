@@ -288,10 +288,23 @@ class AgentTaskManager(InMemoryTaskManager):
                 request.params.id, request.params.pushNotification
             )
             if not verified:
+                failure_status = TaskStatus(
+                    state=TaskState.FAILED,
+                    message=Message(
+                        role="agent",
+                        parts=[
+                            {
+                                "type": "text",
+                                "text": "Push notification endpoint verification failed.",
+                            }
+                        ],
+                    ),
+                )
+                task = await self.update_store(request.params.id, failure_status, [])
                 return SendTaskResponse(
                     id=request.id,
-                    error=InvalidParamsError(
-                        message="Push notification URL could not be verified"
+                    result=self.append_task_history(
+                        task, request.params.historyLength
                     ),
                 )
 
@@ -351,11 +364,35 @@ class AgentTaskManager(InMemoryTaskManager):
                     request.params.id, request.params.pushNotification
                 )
                 if not verified:
-                    return JSONRPCResponse(
-                        id=request.id,
-                        error=InvalidParamsError(
-                            message="Push notification URL could not be verified"
+                    failure_status = TaskStatus(
+                        state=TaskState.FAILED,
+                        message=Message(
+                            role="agent",
+                            parts=[
+                                {
+                                    "type": "text",
+                                    "text": "Push notification endpoint verification failed.",
+                                }
+                            ],
                         ),
+                    )
+                    task = await self.update_store(
+                        request.params.id,
+                        failure_status,
+                        [],
+                    )
+                    queue = await self.setup_sse_consumer(request.params.id)
+                    await queue.put(
+                        TaskStatusUpdateEvent(
+                            id=request.params.id,
+                            status=failure_status,
+                            final=True,
+                        )
+                    )
+                    return self.dequeue_events_for_sse(
+                        request.id,
+                        request.params.id,
+                        queue,
                     )
 
             if not created and self._is_terminal(existing_task):
