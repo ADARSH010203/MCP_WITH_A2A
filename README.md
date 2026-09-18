@@ -99,6 +99,7 @@ MCP_WITH_A2A/
 │   ├── routing/
 │   │   ├── router.py
 │   │   ├── registry.py
+│   │   ├── remote_specialist.py
 │   │   ├── planner.py
 │   │   └── tracing.py
 │   └── config/
@@ -112,7 +113,8 @@ MCP_WITH_A2A/
 │   └── streamlit_app.py
 ├── scripts/
 │   ├── run_a2a_server.py
-│   └── run_mcp_server.py
+│   ├── run_mcp_server.py
+│   └── run_specialist_a2a_server.py
 ├── tests/
 │   ├── test_router.py
 │   ├── test_planner.py
@@ -166,6 +168,9 @@ A2A_MAX_INPUT_CHARS=20000
 A2A_SPECIALIST_TIMEOUT_SECONDS=45
 A2A_SPECIALIST_MAX_RETRIES=1
 A2A_MAX_AGENT_CALLS_PER_TASK=6
+A2A_SPECIALIST_URLS=
+A2A_REMOTE_CONNECT_TIMEOUT_SECONDS=10
+A2A_REMOTE_REQUEST_TIMEOUT_SECONDS=55
 ```
 
 Never commit a real API key.
@@ -183,6 +188,53 @@ The demo SSE endpoint is:
 ```text
 http://127.0.0.1:3000/sse
 ```
+
+## Run an Independent Specialist
+
+Phase 5 supports deploying any built-in specialist as its own A2A service.
+
+For example, start a standalone code specialist:
+
+```bash
+python -m scripts.run_specialist_a2a_server --agent code --port 8101
+```
+
+Start a second specialist in another process:
+
+```bash
+python -m scripts.run_specialist_a2a_server --agent deep_learning --port 8102
+```
+
+Then point the coordinator at those services:
+
+```env
+A2A_SPECIALIST_URLS=code=http://127.0.0.1:8101;deep_learning=http://127.0.0.1:8102
+```
+
+Only configured specialists become remote calls. All other specialists continue using their local implementations, so the deployment can be migrated incrementally.
+
+The coordinator discovers each remote Agent Card from `/.well-known/agent.json` before sending work. Specialist requests use the A2A `tasks/send` contract, and streaming uses `tasks/sendSubscribe`. The coordinator still owns the dependency plan and critic synthesis; the specialist service owns only its domain task.
+
+### Remote specialist architecture
+
+```text
+                         A2A
+                 ┌─────────────────┐
+                 │   Coordinator   │
+                 └────────┬────────┘
+                          │
+          ┌───────────────┼────────────────┐
+          │               │                │
+          ▼               ▼                ▼
+   Code Specialist   DL Specialist   Local Specialist
+      :8101             :8102
+          │               │
+       Agent Card      Agent Card
+          │               │
+       Groq/Tools     Groq/Tools
+```
+
+This is the first phase where specialist-to-specialist work can cross a process or machine boundary. The coordinator sends the dependent specialist's upstream findings as task input over A2A instead of invoking that specialist's Python class directly.
 
 ## Run the A2A Server
 
@@ -241,6 +293,8 @@ ruff check app host frontend scripts tests
 - The critic performs consistency and completeness review; it is not an external fact-checking or source-verification system.
 - The default agent setup requires a valid Groq API key.
 - The current project is a demonstration architecture rather than a production-hardened distributed platform.
+- Remote specialist endpoints are operator-configured and the coordinator does not yet perform service discovery beyond explicit Agent Card retrieval.
+- Remote specialists share the configured A2A bearer credential when authentication is enabled; separate per-service credentials are not modeled yet.
 
 ### Collaboration behavior
 
