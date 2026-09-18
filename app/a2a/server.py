@@ -126,6 +126,17 @@ class A2AServer:
             while timestamps and timestamps[0] <= cutoff:
                 timestamps.popleft()
 
+            if not timestamps:
+                self._request_timestamps.pop(client_host, None)
+                timestamps = deque()
+
+            if len(self._request_timestamps) > 10000:
+                for host, host_timestamps in list(self._request_timestamps.items()):
+                    while host_timestamps and host_timestamps[0] <= cutoff:
+                        host_timestamps.popleft()
+                    if not host_timestamps:
+                        self._request_timestamps.pop(host, None)
+
             if len(timestamps) >= limit:
                 return True
 
