@@ -46,6 +46,8 @@ class BaseAgent:
     supported_content_types = SUPPORTED_CONTENT_TYPES
 
     def __init__(self) -> None:
+        if self.memory_agent_type == "base":
+            self.memory_agent_type = self.__class__.__module__.rsplit(".", 1)[-1]
         self.memory_store = SQLiteConversationMemory(
             settings.a2a_memory_db_path,
             max_turns=settings.a2a_memory_turns,
