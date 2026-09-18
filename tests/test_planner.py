@@ -108,3 +108,20 @@ def test_planner_rejects_dependency_cycle():
         assert "cycle" in str(exc)
     else:
         raise AssertionError("Expected a dependency cycle to be rejected")
+
+
+def test_planner_isolates_non_parallel_agents():
+    planner = CollaborationPlanner()
+    plan = planner.build(
+        query="serialized workflow",
+        agent_types=["a", "b", "c"],
+        task_focus={"a": "A", "b": "B", "c": "C"},
+        handoff_targets={"c": ("a",)},
+        parallel_capabilities={"a": True, "b": True, "c": False},
+    )
+
+    steps = {step.agent: step for step in plan.steps}
+    assert steps["a"].parallel_group == steps["b"].parallel_group == 1
+    assert steps["c"].parallel_group == 2
+    assert steps["c"].depends_on == ("a",)
+    assert steps["critic"].parallel_group == 3
