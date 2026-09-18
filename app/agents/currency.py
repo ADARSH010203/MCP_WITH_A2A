@@ -103,12 +103,14 @@ class CurrencyAgent:
                 yield {
                     "is_task_complete": False,
                     "require_user_input": False,
+                    "status": "working",
                     "content": "Looking up the exchange rates...",
                 }
             elif isinstance(message, ToolMessage):
                 yield {
                     "is_task_complete": False,
                     "require_user_input": False,
+                    "status": "working",
                     "content": "Processing the exchange rates...",
                 }
 
@@ -123,18 +125,29 @@ class CurrencyAgent:
                 return {
                     "is_task_complete": True,
                     "require_user_input": False,
+                    "status": "completed",
+                    "content": structured_response.message,
+                }
+
+            if structured_response.status == "input_required":
+                return {
+                    "is_task_complete": False,
+                    "require_user_input": True,
+                    "status": "input_required",
                     "content": structured_response.message,
                 }
 
             return {
                 "is_task_complete": False,
-                "require_user_input": structured_response.status == "input_required",
+                "require_user_input": False,
+                "status": "error",
                 "content": structured_response.message,
             }
 
         return {
             "is_task_complete": False,
-            "require_user_input": True,
+            "require_user_input": False,
+            "status": "error",
             "content": "We are unable to process your request at the moment. Please try again.",
         }
 
