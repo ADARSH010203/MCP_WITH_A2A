@@ -122,14 +122,10 @@ class HostAgent:
             if state == TaskState.COMPLETED:
                 artifacts = result.get("artifacts") or []
                 content_parts: list[str] = []
-                metadata: dict[str, Any] = {}
 
                 for artifact in artifacts:
                     if not isinstance(artifact, dict):
                         continue
-                    artifact_metadata = artifact.get("metadata")
-                    if isinstance(artifact_metadata, dict):
-                        metadata.update(artifact_metadata)
 
                     for part in artifact.get("parts") or []:
                         if isinstance(part, dict) and part.get("type") == "text":
