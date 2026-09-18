@@ -197,7 +197,7 @@ streamlit run frontend/streamlit_app.py
 
 ## Run Tests
 
-The included tests cover routing decisions and the deterministic MCP currency tool without requiring a live Groq request.
+The included tests cover routing, multi-agent handoffs, task lifecycle behavior, push-notification security, and MCP currency-tool input validation. Unit tests use fakes instead of live Groq calls.
 
 ```bash
 pytest -q
