@@ -3,9 +3,9 @@ import logging
 import traceback
 from typing import AsyncIterable, Union
 
-import utils as utils
+from app.a2a import utils
 from app.a2a.base_task_manager import InMemoryTaskManager
-from agent import CurrencyAgent
+from app.agents.currency import CurrencyAgent
 from app.a2a.models import (
     Artifact,
     InternalError,
@@ -26,7 +26,7 @@ from app.a2a.models import (
     TaskStatusUpdateEvent,
     TextPart,
 )
-from push_notification_auth import PushNotificationSenderAuth
+from app.a2a.push_notification_auth import PushNotificationSenderAuth
 
 logger = logging.getLogger(__name__)
 
