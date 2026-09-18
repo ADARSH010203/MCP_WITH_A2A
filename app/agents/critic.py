@@ -98,7 +98,7 @@ class CriticAgent:
             return {
                 "status": "completed",
                 "content": (
-                    "The critic could not complete verification. "
+                    "The critic could not complete its review. "
                     "The following specialist findings are returned without synthesis:\n\n"
                     + fallback
                 ),
