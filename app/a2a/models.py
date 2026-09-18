@@ -124,7 +124,7 @@ class PushNotificationConfig(BaseModel):
 
 
 class TaskIdParams(BaseModel):
-    id: str
+    id: str = Field(min_length=1, max_length=128)
     metadata: dict[str, Any] | None = None
 
 
@@ -133,8 +133,8 @@ class TaskQueryParams(TaskIdParams):
 
 
 class TaskSendParams(BaseModel):
-    id: str
-    sessionId: str = Field(default_factory=lambda: uuid4().hex)
+    id: str = Field(min_length=1, max_length=128)
+    sessionId: str = Field(default_factory=lambda: uuid4().hex, min_length=1, max_length=128)
     message: Message
     acceptedOutputModes: list[str] | None = None
     pushNotification: PushNotificationConfig | None = None
