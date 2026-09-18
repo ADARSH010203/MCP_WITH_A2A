@@ -1,6 +1,9 @@
+"""FastAPI implementation of the A2A JSON-RPC endpoint."""
+
 import json
 import logging
-from typing import Any, AsyncIterable, Union
+from collections.abc import AsyncIterable
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -24,33 +27,38 @@ from app.a2a.models import (
     TaskResubscriptionRequest,
 )
 
-logger = logging.getLogger(__name__)
-
 
 class A2AServer:
+    """Expose A2A task operations over FastAPI and Server-Sent Events."""
+
     def __init__(
         self,
         host: str = "0.0.0.0",
         port: int = 5000,
         endpoint: str = "/",
-        agent_card: AgentCard = None,
-        task_manager: TaskManager = None,
-    ):
+        agent_card: AgentCard | None = None,
+        task_manager: TaskManager | None = None,
+    ) -> None:
+        if not endpoint.startswith("/"):
+            raise ValueError("endpoint must start with '/'")
+
         self.host = host
         self.port = port
         self.endpoint = endpoint
-        self.task_manager = task_manager
         self.agent_card = agent_card
+        self.task_manager = task_manager
 
-        # Erstelle eine FastAPI-App für automatische Dokumentation (/docs, /redoc, etc.)
         self.app = FastAPI(
-            title="A2A Server", description="A2A Protocol JSON-RPC API", version="1.0.0"
+            title="A2A Server",
+            description="A2A Protocol JSON-RPC API",
+            version="1.0.0",
         )
-        # JSON-RPC-Endpunkt (POST) - automatische Response Modell Generierung deaktiviert
         self.app.add_api_route(
-            self.endpoint, self._process_request, methods=["POST"], response_model=None
+            self.endpoint,
+            self._process_request,
+            methods=["POST"],
+            response_model=None,
         )
-        # AgentCard-Endpunkt unter .well-known
         self.app.add_api_route(
             "/.well-known/agent.json",
             self._get_agent_card,
@@ -58,81 +66,78 @@ class A2AServer:
             response_model=None,
         )
 
-    def start(self):
+    def start(self) -> None:
+        """Start the ASGI application with Uvicorn."""
         if self.agent_card is None:
-            raise ValueError("agent_card is not defined")
+            raise ValueError("agent_card is required")
         if self.task_manager is None:
-            raise ValueError("task_manager is not defined")
+            raise ValueError("task_manager is required")
+
         import uvicorn
 
         uvicorn.run(self.app, host=self.host, port=self.port)
 
-    async def _get_agent_card(self, request: Request) -> JSONResponse:
-        # Liefert die AgentCard als JSON zurück.
+    async def _get_agent_card(self, _request: Request) -> JSONResponse:
+        if self.agent_card is None:
+            raise RuntimeError("Agent card is not configured")
         return JSONResponse(self.agent_card.model_dump(exclude_none=True))
 
     async def _process_request(
         self, request: Request
-    ) -> Union[JSONResponse, EventSourceResponse]:
+    ) -> JSONResponse | EventSourceResponse:
         try:
             body = await request.json()
-            json_rpc_request = A2ARequest.validate_python(body)
+            rpc_request = A2ARequest.validate_python(body)
 
-            if isinstance(json_rpc_request, GetTaskRequest):
-                result = await self.task_manager.on_get_task(json_rpc_request)
-            elif isinstance(json_rpc_request, SendTaskRequest):
-                result = await self.task_manager.on_send_task(json_rpc_request)
-            elif isinstance(json_rpc_request, SendTaskStreamingRequest):
-                result = await self.task_manager.on_send_task_subscribe(
-                    json_rpc_request
-                )
-            elif isinstance(json_rpc_request, CancelTaskRequest):
-                result = await self.task_manager.on_cancel_task(json_rpc_request)
-            elif isinstance(json_rpc_request, SetTaskPushNotificationRequest):
-                result = await self.task_manager.on_set_task_push_notification(
-                    json_rpc_request
-                )
-            elif isinstance(json_rpc_request, GetTaskPushNotificationRequest):
-                result = await self.task_manager.on_get_task_push_notification(
-                    json_rpc_request
-                )
-            elif isinstance(json_rpc_request, TaskResubscriptionRequest):
-                result = await self.task_manager.on_resubscribe_to_task(
-                    json_rpc_request
-                )
-            else:
-                logger.warning(f"Unexpected request type: {type(json_rpc_request)}")
-                raise ValueError(f"Unexpected request type: {type(json_rpc_request)}")
+            if self.task_manager is None:
+                raise RuntimeError("Task manager is not configured")
 
-            return self._create_response(result)
+            handlers = {
+                SendTaskRequest: self.task_manager.on_send_task,
+                SendTaskStreamingRequest: self.task_manager.on_send_task_subscribe,
+                GetTaskRequest: self.task_manager.on_get_task,
+                CancelTaskRequest: self.task_manager.on_cancel_task,
+                SetTaskPushNotificationRequest: self.task_manager.on_set_task_push_notification,
+                GetTaskPushNotificationRequest: self.task_manager.on_get_task_push_notification,
+                TaskResubscriptionRequest: self.task_manager.on_resubscribe_to_task,
+            }
+            handler = next(
+                (method for request_type, method in handlers.items() if isinstance(rpc_request, request_type)),
+                None,
+            )
+            if handler is None:
+                raise ValueError(f"Unsupported request type: {type(rpc_request).__name__}")
 
-        except Exception as e:
-            return self._handle_exception(e)
+            return self._create_response(await handler(rpc_request))
+        except Exception as exc:
+            return self._handle_exception(exc)
 
-    def _handle_exception(self, e: Exception) -> JSONResponse:
-        if isinstance(e, json.decoder.JSONDecodeError):
-            json_rpc_error = JSONParseError()
-        elif isinstance(e, ValidationError):
-            json_rpc_error = InvalidRequestError(data=json.loads(e.json()))
+    def _handle_exception(self, exc: Exception) -> JSONResponse:
+        if isinstance(exc, json.JSONDecodeError):
+            error = JSONParseError()
+        elif isinstance(exc, ValidationError):
+            error = InvalidRequestError(data=exc.errors())
         else:
-            logger.error(f"Unhandled exception: {e}")
-            json_rpc_error = InternalError()
+            logging.getLogger(__name__).exception("Unhandled A2A request error")
+            error = InternalError()
 
-        response = JSONRPCResponse(id=None, error=json_rpc_error)
-        return JSONResponse(response.model_dump(exclude_none=True), status_code=400)
+        return JSONResponse(
+            JSONRPCResponse(id=None, error=error).model_dump(exclude_none=True),
+            status_code=400,
+        )
 
-    def _create_response(self, result: Any) -> Union[JSONResponse, EventSourceResponse]:
+    @staticmethod
+    def _create_response(result: Any) -> JSONResponse | EventSourceResponse:
         if isinstance(result, AsyncIterable):
 
-            async def event_generator(
-                result: AsyncIterable,
-            ) -> AsyncIterable[dict[str, str]]:
+            async def event_generator() -> AsyncIterable[dict[str, str]]:
                 async for item in result:
-                    yield {"data": item.model_dump_json(exclude_none=True)}
+                    data = item.model_dump_json(exclude_none=True)
+                    yield {"data": data}
 
-            return EventSourceResponse(event_generator(result))
-        elif isinstance(result, JSONRPCResponse):
+            return EventSourceResponse(event_generator())
+
+        if isinstance(result, JSONRPCResponse):
             return JSONResponse(result.model_dump(exclude_none=True))
-        else:
-            logger.error(f"Unexpected result type: {type(result)}")
-            raise ValueError(f"Unexpected result type: {type(result)}")
+
+        raise ValueError(f"Unexpected result type: {type(result).__name__}")
