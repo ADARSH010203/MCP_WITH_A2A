@@ -278,6 +278,15 @@ pytest -q
 ruff check app host frontend scripts tests
 ```
 
+### MCP tool expansion
+
+The MCP layer now exposes two utility tools:
+
+- `get_exchange_rate` for daily reference currency rates.
+- `calculate` for bounded arithmetic expressions.
+
+The calculator parses Python's expression AST instead of calling `eval()`, accepts only numeric arithmetic operators, enforces an input-length limit, and rejects non-finite results. It is intentionally not a general-purpose code execution tool.
+
 ## Security and Reliability
 
 - API credentials are loaded from environment variables and should never be committed.
