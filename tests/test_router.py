@@ -34,7 +34,7 @@ class FakeCritic:
         return {
             "status": "completed",
             "content": "critic synthesis",
-            "verified": True,
+            "critic_reviewed": True,
         }
 
 
@@ -140,7 +140,7 @@ def test_collaboration_runs_specialists_and_critic():
 
     assert result["status"] == "completed"
     assert result["content"] == "critic synthesis"
-    assert result["verified"] is True
+    assert result["critic_reviewed"] is True
     assert len(critic.calls) == 1
 
     used_agents = [item["agent"] for item in critic.calls[0][1]]
