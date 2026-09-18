@@ -435,7 +435,7 @@ class MultiAgent:
             "require_user_input": synthesis.get("status") == "input_required",
             "content": synthesis.get("content", ""),
             "agents_used": agent_types,
-            "verified": synthesis.get("verified", False),
+            "critic_reviewed": synthesis.get("critic_reviewed", False),
         }
 
     def invoke(self, query: str, session_id: str) -> dict[str, Any]:
@@ -445,7 +445,7 @@ class MultiAgent:
             result = self._route(query).invoke(query, session_id)
             result.setdefault("agents_used", [agent_types[0]])
             result.setdefault("collaboration_mode", "single-agent")
-            result.setdefault("verified", False)
+            result.setdefault("critic_reviewed", False)
             return result
 
         result = self._run_collaboration(query, session_id, agent_types)
@@ -459,7 +459,7 @@ class MultiAgent:
             async for response in self._route(query).stream(query, session_id):
                 response.setdefault("agents_used", [agent_types[0]])
                 response.setdefault("collaboration_mode", "single-agent")
-                response.setdefault("verified", False)
+                response.setdefault("critic_reviewed", False)
                 yield response
             return
 
@@ -573,5 +573,5 @@ class MultiAgent:
             "status": synthesis.get("status", "error"),
             "content": synthesis.get("content", ""),
             "agents_used": agent_types,
-            "verified": synthesis.get("verified", False),
+            "critic_reviewed": synthesis.get("critic_reviewed", False),
         }
