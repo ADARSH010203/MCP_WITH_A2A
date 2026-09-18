@@ -88,7 +88,9 @@ def build_agent_card(host: str, port: int) -> AgentCard:
     return AgentCard(
         name="Multi-Purpose Agent",
         description="A multi-agent service that routes requests to specialized AI agents.",
-        url=f"http://{host}:{port}/",
+        url=(settings.a2a_public_url.rstrip("/") + "/")
+        if settings.a2a_public_url
+        else f"http://{host}:{port}/",
         version="1.0.0",
         defaultInputModes=["text"],
         defaultOutputModes=["text", "text/plain"],
