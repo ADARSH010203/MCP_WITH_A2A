@@ -117,6 +117,8 @@ class AgentTaskManager(InMemoryTaskManager):
         if validation_error:
             return SendTaskResponse(id=request.id, error=validation_error.error)
 
+        await self.upsert_task(request.params)
+
         if request.params.pushNotification:
             verified = await self.set_push_notification_info(
                 request.params.id, request.params.pushNotification
@@ -124,10 +126,11 @@ class AgentTaskManager(InMemoryTaskManager):
             if not verified:
                 return SendTaskResponse(
                     id=request.id,
-                    error=InvalidParamsError(message="Push notification URL could not be verified"),
+                    error=InvalidParamsError(
+                        message="Push notification URL could not be verified"
+                    ),
                 )
 
-        await self.upsert_task(request.params)
         task = await self.update_store(
             request.params.id, TaskStatus(state=TaskState.WORKING), []
         )
