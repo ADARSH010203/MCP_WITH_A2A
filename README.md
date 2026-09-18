@@ -121,6 +121,7 @@ MCP_WITH_A2A/
 │   ├── test_task_manager.py
 │   ├── test_tracing.py
 │   ├── test_remote_specialist.py
+│   ├── test_remote_config.py
 │   ├── test_push_notification_auth.py
 │   └── test_mcp.py
 ├── .env.example
