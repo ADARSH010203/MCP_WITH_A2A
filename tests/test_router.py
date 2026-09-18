@@ -150,6 +150,10 @@ def test_collaboration_runs_specialists_and_critic():
     for agent_type in used_agents:
         assert len(agents[agent_type].calls) == 1
 
+    code_query = agents["code"].calls[0][0]
+    assert "deep_learning" in code_query
+    assert "deep_learning result" in code_query
+
 
 
 class FailingAgent(FakeAgent):
