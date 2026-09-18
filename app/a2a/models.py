@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Annotated, Any, List, Literal, Optional, Union
 from uuid import uuid4
@@ -71,7 +71,7 @@ class Message(BaseModel):
 class TaskStatus(BaseModel):
     state: TaskState
     message: Message | None = None
-    timestamp: datetime = Field(default_factory=datetime.now)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     @field_serializer("timestamp")
     def serialize_dt(self, dt: datetime, _info):
@@ -343,8 +343,8 @@ class AgentCard(BaseModel):
     documentationUrl: str | None = None
     capabilities: AgentCapabilities
     authentication: AgentAuthentication | None = None
-    defaultInputModes: List[str] = ["text"]
-    defaultOutputModes: List[str] = ["text"]
+    defaultInputModes: List[str] = Field(default_factory=lambda: ["text"])
+    defaultOutputModes: List[str] = Field(default_factory=lambda: ["text"])
     skills: List[AgentSkill]
 
 
