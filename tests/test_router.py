@@ -1,3 +1,5 @@
+import time
+
 from app.a2a.models import Message
 from app.routing.router import MultiAgent
 
@@ -37,6 +39,33 @@ class FakeCritic:
             "critic_reviewed": True,
         }
 
+
+
+
+class RetryAgent(FakeAgent):
+    def __init__(self, name: str):
+        super().__init__(name)
+        self.attempts = 0
+
+    def invoke(self, query: str, session_id: str) -> dict:
+        self.calls.append((query, session_id))
+        self.attempts += 1
+        if self.attempts == 1:
+            raise RuntimeError("temporary failure")
+        return {
+            "status": "completed",
+            "content": f"{self.name} recovered",
+        }
+
+
+class SlowAgent(FakeAgent):
+    def invoke(self, query: str, session_id: str) -> dict:
+        self.calls.append((query, session_id))
+        time.sleep(0.05)
+        return {
+            "status": "completed",
+            "content": f"{self.name} result",
+        }
 
 def fake_agents():
     return {
@@ -242,3 +271,62 @@ def test_collaboration_surfaces_required_input_when_all_specialists_need_it():
     assert result["require_user_input"] is True
     assert "deep_learning" in result["content"]
     assert "code" in result["content"]
+
+
+def test_specialist_retries_transient_failures():
+    agents = fake_agents()
+    agents["code"] = RetryAgent("code")
+    router = MultiAgent(agents=agents)
+    router.specialist_max_retries = 1
+    router.specialist_timeout_seconds = 1
+
+    result = router.invoke("Write Python code", "session-retry")
+
+    assert result["status"] == "completed"
+    assert agents["code"].attempts == 2
+
+
+def test_specialist_timeout_is_isolated():
+    agents = fake_agents()
+    agents["code"] = SlowAgent("code")
+    router = MultiAgent(agents=agents)
+    router.specialist_timeout_seconds = 0.01
+    router.specialist_max_retries = 1
+
+    result = router.invoke("Write Python code", "session-timeout")
+
+    assert result["status"] == "timeout"
+    assert result["is_task_complete"] is False
+    assert agents["code"].calls
+
+
+def test_collaboration_continues_when_one_specialist_times_out():
+    agents = fake_agents()
+    agents["code"] = SlowAgent("code")
+    critic = FakeCritic()
+    router = MultiAgent(agents=agents, critic=critic)
+    router.specialist_timeout_seconds = 0.01
+
+    result = router.invoke(
+        "Build a Python CNN image classification pipeline",
+        "session-partial-timeout",
+    )
+
+    assert result["status"] == "completed"
+    outcomes = {item["agent"]: item["status"] for item in critic.calls[0][1]}
+    assert outcomes["deep_learning"] == "completed"
+    assert outcomes["code"] == "timeout"
+
+
+def test_call_budget_limits_retries_and_preserves_attempt_count():
+    agents = fake_agents()
+    agents["code"] = RetryAgent("code")
+    router = MultiAgent(agents=agents)
+    router.max_agent_calls_per_task = 1
+    router.specialist_max_retries = 1
+
+    result = router.invoke("Write Python code", "session-budget")
+
+    assert result["status"] == "budget_exceeded"
+    assert result["attempts"] == 1
+    assert agents["code"].attempts == 1
