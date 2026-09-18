@@ -34,8 +34,13 @@ from app.config.constants import SUPPORTED_CONTENT_TYPES
 
 
 class AgentTaskManager(InMemoryTaskManager):
-    def __init__(self, agent: Any, notification_sender_auth: PushNotificationSenderAuth):
-        super().__init__()
+    def __init__(
+        self,
+        agent: Any,
+        notification_sender_auth: PushNotificationSenderAuth,
+        store: SQLiteTaskStore | None = None,
+    ):
+        super().__init__(store=store)
         self.agent = agent
         self.notification_sender_auth = notification_sender_auth
         self.streaming_tasks: dict[str, asyncio.Task[None]] = {}
