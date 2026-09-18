@@ -200,24 +200,44 @@ class InMemoryTaskManager(TaskManager):
             ),
         )
 
-    async def upsert_task(self, task_send_params: TaskSendParams) -> Task:
-        logger.info(f"Upserting task {task_send_params.id}")
+    async def get_or_create_task(
+        self, task_send_params: TaskSendParams
+    ) -> tuple[Task, bool]:
+        """Atomically return an existing task or create a new one.
+
+        Returns ``(task, created)``. Reusing a task ID with a different
+        session or message is rejected to protect idempotency.
+        """
+        logger.info("Getting or creating task %s", task_send_params.id)
+
         async with self.lock:
             task = self.tasks.get(task_send_params.id)
-            if task is None:
-                task = Task(
-                    id=task_send_params.id,
-                    sessionId=task_send_params.sessionId,
-                    status=TaskStatus(state=TaskState.SUBMITTED),
-                    history=[task_send_params.message],
-                )
-                self.tasks[task_send_params.id] = task
-            else:
-                if task.history is None:
-                    task.history = []
-                task.history.append(task_send_params.message)
+            if task is not None:
+                existing_message = (task.history or [None])[0]
+                if (
+                    task.sessionId != task_send_params.sessionId
+                    or existing_message is None
+                    or existing_message.model_dump()
+                    != task_send_params.message.model_dump()
+                ):
+                    raise ValueError(
+                        f"Task ID '{task_send_params.id}' is already used by a different request"
+                    )
+                return task, False
 
-            return task
+            task = Task(
+                id=task_send_params.id,
+                sessionId=task_send_params.sessionId,
+                status=TaskStatus(state=TaskState.SUBMITTED),
+                history=[task_send_params.message],
+            )
+            self.tasks[task_send_params.id] = task
+            return task, True
+
+    async def upsert_task(self, task_send_params: TaskSendParams) -> Task:
+        """Create a task or return the existing matching task."""
+        task, _ = await self.get_or_create_task(task_send_params)
+        return task
 
     async def on_resubscribe_to_task(
         self, request: TaskResubscriptionRequest
