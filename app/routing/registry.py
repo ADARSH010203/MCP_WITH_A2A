@@ -1,7 +1,7 @@
 """Capability metadata for the built-in specialist agents."""
 
 from dataclasses import dataclass
-from typing import Callable
+from collections.abc import Callable
 
 
 TriggerMatcher = Callable[[str, str], bool]
