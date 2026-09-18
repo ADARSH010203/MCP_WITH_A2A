@@ -82,11 +82,12 @@ class AgentRegistry:
         return tuple(self._capabilities.values())
 
     def score_all(self, text: str, matcher: TriggerMatcher) -> dict[str, int]:
-        return {
-            capability.name: capability.score(text, matcher)
-            for capability in self.items()
-            if capability.score(text, matcher) > 0
-        }
+        scores: dict[str, int] = {}
+        for capability in self.items():
+            score = capability.score(text, matcher)
+            if score > 0:
+                scores[capability.name] = score
+        return scores
 
     def task_focus_map(self) -> dict[str, str]:
         return {
