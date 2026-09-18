@@ -129,6 +129,10 @@ MCP_WITH_A2A/
 │   └── run_evaluation.py
 ├── tests/
 │   ├── test_evaluation.py
+│   ├── test_security.py
+│   ├── test_memory.py
+│   ├── test_calculator.py
+│   ├── test_deployment.py
 │   ├── test_router.py
 │   ├── test_planner.py
 │   ├── test_task_manager.py
@@ -139,10 +143,9 @@ MCP_WITH_A2A/
 │   └── test_mcp.py
 ├── .env.example
 ├── Dockerfile
+├── docker-compose.yml
 ├── requirements.txt
-├── pyproject.toml
-├── Dockerfile
-└── docker-compose.yml
+└── pyproject.toml
 ```
 
 ## Setup
