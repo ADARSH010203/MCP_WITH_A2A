@@ -37,6 +37,31 @@ Multi-Agent Router
 5. Currency requests can call the MCP SSE tool server.
 6. The task manager returns the result or streams task updates through SSE.
 
+### Multi-agent collaboration
+
+```text
+User
+  │
+  ▼
+Host / Client
+  │
+  ▼
+A2A Server
+  │
+  ▼
+Multi-Agent Router
+  │
+  ├── Simple request ──► One specialized agent
+  │
+  └── Cross-domain request
+        │
+        ├──► Specialist A ──┐
+        ├──► Specialist B ──┼──► Critic / Synthesizer ──► Final response
+        └──► Specialist C ──┘
+                 │
+                 └── Currency Agent ──► MCP Currency Tool
+```
+
 ## Project Structure
 
 ```text
@@ -193,6 +218,9 @@ ruff check app host frontend scripts tests
 - The default agent setup requires a valid Groq API key.
 - The current project is a demonstration architecture rather than a production-hardened distributed platform.
 
+### Collaboration behavior
+
+The router keeps simple requests cheap by using one specialist. When a request clearly spans multiple domains—for example, “Build a Python CNN image-classification pipeline”—the coordinator selects up to three relevant specialists. Their tasks run independently, using separate conversation threads, and a critic agent compares the findings and produces the final response. If one specialist fails, the critic can still synthesize the successful findings and explicitly acknowledge the missing contribution.
 ## Task Lifecycle
 
 ```text
