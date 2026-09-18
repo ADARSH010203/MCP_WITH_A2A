@@ -1,7 +1,6 @@
 import asyncio
 
 from app.a2a.models import (
-    AgentCard,
     CancelTaskRequest,
     JSONRPCResponse,
     Message,
