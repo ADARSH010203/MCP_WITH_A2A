@@ -49,7 +49,7 @@ class BaseAgent:
     ) -> AsyncIterable[dict[str, Any]]:
         config = self._config(session_id)
 
-        for item in self.graph.stream(
+        async for item in self.graph.astream(
             {"messages": [("user", query)]},
             config,
             stream_mode="values",
