@@ -86,7 +86,7 @@ PyYAML==6.0.2
 regex==2024.11.6
 requests-toolbelt==1.0.0
 requests==2.32.3
-rich==14.0.0
+rich==13.9.4
 rsa==4.9
 ruff==0.11.5
 shapely==2.1.0
