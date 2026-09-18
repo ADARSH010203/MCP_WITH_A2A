@@ -120,6 +120,7 @@ MCP_WITH_A2A/
 │   ├── test_planner.py
 │   ├── test_task_manager.py
 │   ├── test_tracing.py
+│   ├── test_remote_specialist.py
 │   ├── test_push_notification_auth.py
 │   └── test_mcp.py
 ├── .env.example
@@ -234,7 +235,7 @@ The coordinator discovers each remote Agent Card from `/.well-known/agent.json` 
        Groq/Tools     Groq/Tools
 ```
 
-This is the first phase where specialist-to-specialist work can cross a process or machine boundary. The coordinator sends the dependent specialist's upstream findings as task input over A2A instead of invoking that specialist's Python class directly.
+This is the first phase where specialist services can cross a process or machine boundary. The coordinator remains the orchestration authority, but a dependent specialist can now be an independent remote A2A service; its upstream findings are sent as task input over A2A instead of invoking that specialist's Python class directly. This is coordinator-mediated distributed collaboration, not direct peer-to-peer calls between every specialist.
 
 ## Run the A2A Server
 
@@ -293,7 +294,7 @@ ruff check app host frontend scripts tests
 - The critic performs consistency and completeness review; it is not an external fact-checking or source-verification system.
 - The default agent setup requires a valid Groq API key.
 - The current project is a demonstration architecture rather than a production-hardened distributed platform.
-- Remote specialist endpoints are operator-configured and the coordinator does not yet perform service discovery beyond explicit Agent Card retrieval.
+- Remote specialist endpoints are operator-configured; the coordinator discovers each configured service only through explicit Agent Card retrieval.
 - Remote specialists share the configured A2A bearer credential when authentication is enabled; separate per-service credentials are not modeled yet.
 
 ### Collaboration behavior
@@ -314,7 +315,7 @@ Game ───────────────┤
 RL ─────────────────┘
 ```
 
-The dependency graph is validated for unknown dependencies and cycles before a plan is executed. Independent specialists share a parallel execution group; dependent specialists run only after the required upstream group has produced its findings.
+The dependency graph is validated for unknown dependencies and cycles before a plan is executed. Independent specialists share a parallel execution group; dependent specialists run only after the required upstream group has produced its findings. A trace event records whether each specialist execution used the local implementation or a remote A2A service.
 
 This remains deterministic and explainable. There is no LLM-based routing decision in this phase.
 
