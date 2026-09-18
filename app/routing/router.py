@@ -611,6 +611,7 @@ class MultiAgent:
                 ),
                 "agents_used": agent_types,
                 "collaboration_mode": "multi-agent",
+                "collaboration_plan": plan.to_dict(),
             }
 
         yield {
@@ -618,6 +619,9 @@ class MultiAgent:
             "require_user_input": False,
             "status": "working",
             "content": "Critic is comparing the specialist findings...",
+            "agents_used": agent_types,
+            "collaboration_mode": "multi-agent",
+            "collaboration_plan": plan.to_dict(),
         }
 
         synthesis = await asyncio.to_thread(
