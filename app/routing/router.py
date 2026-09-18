@@ -284,13 +284,22 @@ class MultiAgent:
             return result
 
         started = time.perf_counter()
+        execution_mode = (
+            "remote-a2a"
+            if agent_type in self.remote_specialist_urls
+            else "local"
+        )
         if trace:
             trace.record(
                 "specialist_started",
                 agent_type,
                 "working",
                 attempt=attempt,
-                details={"budget_used": budget.used, "budget_limit": budget.limit},
+                details={
+                    "budget_used": budget.used,
+                    "budget_limit": budget.limit,
+                    "execution_mode": execution_mode,
+                },
             )
 
         executor = ThreadPoolExecutor(
@@ -366,6 +375,12 @@ class MultiAgent:
                 str(outcome["status"]),
                 (time.perf_counter() - started) * 1000,
                 attempt=attempt,
+                details={
+                    "execution_mode": outcome.get(
+                        "execution_mode",
+                        execution_mode,
+                    ),
+                },
             )
         return outcome
 
