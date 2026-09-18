@@ -143,14 +143,6 @@ class MultiAgent:
             return keyword in text
         return re.search(rf"\b{re.escape(keyword)}\b", text) is not None
 
-    PRIORITY_PHRASES: tuple[tuple[str, str], ...] = (
-        ("deep_learning", "graph neural network"),
-        ("deep_learning", "image classification"),
-        ("reinforcement", "deep reinforcement learning"),
-        ("dsa", "graph algorithm"),
-        ("dsa", "graph traversal"),
-    )
-
     @classmethod
     def _score_agent_types(cls, text: str) -> dict[str, int]:
         return cls.AGENT_REGISTRY.score_all(text, cls._keyword_matches)
@@ -545,11 +537,18 @@ class MultiAgent:
             return
 
         stream = self._get_agent(agent_type).stream(query, session_id)
+        completed_recorded = False
+        deadline = time.perf_counter() + self.specialist_timeout_seconds
+
         try:
             while True:
+                remaining = deadline - time.perf_counter()
+                if remaining <= 0:
+                    raise asyncio.TimeoutError
+
                 item = await asyncio.wait_for(
                     stream.__anext__(),
-                    timeout=self.specialist_timeout_seconds,
+                    timeout=remaining,
                 )
                 yield item
         except StopAsyncIteration:
@@ -562,17 +561,18 @@ class MultiAgent:
                     "timeout",
                     (time.perf_counter() - started) * 1000,
                 )
+            completed_recorded = True
             yield {
                 "status": "timeout",
                 "is_task_complete": False,
                 "require_user_input": False,
                 "content": (
                     f"{agent_type} specialist exceeded the "
-                    f"{self.specialist_timeout_seconds:g}s streaming timeout."
+                    f"{self.specialist_timeout_seconds:g}s total streaming timeout."
                 ),
             }
         finally:
-            if trace and not trace.snapshot()["events"][-1]["stage"] == "specialist_completed":
+            if trace and not completed_recorded:
                 trace.record(
                     "specialist_completed",
                     agent_type,
