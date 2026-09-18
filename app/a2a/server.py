@@ -8,6 +8,8 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
+
+from app.config.settings import settings
 from sse_starlette.sse import EventSourceResponse
 
 from app.a2a.base_task_manager import TaskManager
@@ -86,6 +88,17 @@ class A2AServer:
         self, request: Request
     ) -> JSONResponse | EventSourceResponse:
         try:
+            if settings.a2a_api_key:
+                authorization = request.headers.get("Authorization", "")
+                expected = f"Bearer {settings.a2a_api_key}"
+                if authorization != expected:
+                    return JSONResponse(
+                        JSONRPCResponse(
+                            id=None,
+                            error=InvalidRequestError(message="Authentication required"),
+                        ).model_dump(exclude_none=True),
+                        status_code=401,
+                    )
             body = await request.json()
             rpc_request = A2ARequest.validate_python(body)
 
