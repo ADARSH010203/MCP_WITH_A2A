@@ -53,6 +53,17 @@ class FakeStreamingAgent:
         }
 
 
+class TimeoutStreamingAgent:
+    async def stream(self, query: str, session_id: str):
+        yield {
+            "status": "timeout",
+            "is_task_complete": False,
+            "require_user_input": False,
+            "content": "specialist timed out",
+            "agents_used": ["code"],
+        }
+
+
 class BlockingStreamingAgent:
     def __init__(self):
         self.stream_calls = 0
@@ -257,5 +268,54 @@ def test_task_state_survives_manager_restart(tmp_path):
         assert restored is not None
         assert restored.status.state == TaskState.COMPLETED
         assert restored.artifacts
+
+    asyncio.run(scenario())
+
+
+
+def test_timeout_response_is_marked_failed():
+    async def scenario():
+        agent = FakeAgent(
+            {
+                "status": "timeout",
+                "is_task_complete": False,
+                "require_user_input": False,
+                "content": "timed out",
+            }
+        )
+        manager = AgentTaskManager(
+            agent,
+            FakeNotificationAuth(),
+            store=SQLiteTaskStore(":memory:"),
+        )
+
+        response = await manager.on_send_task(make_request("timeout-task"))
+
+        assert response.result is not None
+        assert response.result.status.state == TaskState.FAILED
+
+    asyncio.run(scenario())
+
+
+def test_streaming_timeout_is_marked_failed_and_terminal():
+    async def scenario():
+        manager = AgentTaskManager(
+            TimeoutStreamingAgent(),
+            FakeNotificationAuth(),
+            store=SQLiteTaskStore(":memory:"),
+        )
+
+        response = await manager.on_send_task_subscribe(
+            make_stream_request("stream-timeout")
+        )
+        assert not isinstance(response, JSONRPCResponse)
+
+        events = []
+        async for event in response:
+            events.append(event)
+
+        assert events[-1].result is not None
+        assert events[-1].result.status.state == TaskState.FAILED
+        assert events[-1].result.final is True
 
     asyncio.run(scenario())
