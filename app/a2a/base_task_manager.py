@@ -82,6 +82,7 @@ class TaskManager(ABC):
 class InMemoryTaskManager(TaskManager):
     def __init__(self, store: SQLiteTaskStore | None = None):
         self.store = store or SQLiteTaskStore(settings.a2a_task_db_path)
+        self.store.purge_expired(settings.a2a_task_retention_days)
         self.tasks: dict[str, Task] = self.store.load_tasks()
         self.push_notification_infos: dict[str, PushNotificationConfig] = (
             self.store.load_push_notification_configs()
