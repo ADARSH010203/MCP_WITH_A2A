@@ -54,8 +54,14 @@ class RemoteA2ASpecialist:
     def _text_from_parts(parts: list[Any] | None) -> list[str]:
         texts: list[str] = []
         for part in parts or []:
-            if isinstance(part, dict) and part.get("type") == "text":
-                value = str(part.get("text", "")).strip()
+            if isinstance(part, dict):
+                part_type = part.get("type")
+                value = part.get("text", "")
+            else:
+                part_type = getattr(part, "type", None)
+                value = getattr(part, "text", "")
+            if part_type == "text":
+                value = str(value).strip()
                 if value:
                     texts.append(value)
         return texts
@@ -67,12 +73,7 @@ class RemoteA2ASpecialist:
 
         for artifact in artifacts:
             content.extend(
-                cls._text_from_parts(
-                    [
-                        part.model_dump() if hasattr(part, "model_dump") else part
-                        for part in (getattr(artifact, "parts", None) or [])
-                    ]
-                )
+                cls._text_from_parts(getattr(artifact, "parts", None))
             )
 
         if content:
@@ -210,14 +211,7 @@ class RemoteA2ASpecialist:
 
                 metadata = getattr(result, "metadata", None) or {}
                 if hasattr(result, "artifact"):
-                    content = self._text_from_parts(
-                        [
-                            part.model_dump()
-                            if hasattr(part, "model_dump")
-                            else part
-                            for part in (result.artifact.parts or [])
-                        ]
-                    )
+                    content = self._text_from_parts(result.artifact.parts)
                     yield {
                         "agent": self.agent_type,
                         "status": "completed",
@@ -251,14 +245,7 @@ class RemoteA2ASpecialist:
                     in {TaskState.COMPLETED, TaskState.INPUT_REQUIRED, TaskState.FAILED},
                     "require_user_input": state == TaskState.INPUT_REQUIRED,
                     "content": self._text_from_parts(
-                        [
-                            part.model_dump()
-                            if hasattr(part, "model_dump")
-                            else part
-                            for part in (
-                                getattr(result.status.message, "parts", None) or []
-                            )
-                        ]
+                        getattr(result.status.message, "parts", None)
                     )
                     or f"Remote task state: {state.value}.",
                     "execution_mode": "remote-a2a",
