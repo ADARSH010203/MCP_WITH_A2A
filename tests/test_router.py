@@ -27,12 +27,6 @@ class FakeAgent:
         }
 
 
-class SlowCritic(FakeCritic):
-    def synthesize(self, query: str, contributions: list[dict]) -> dict:
-        time.sleep(0.05)
-        return super().synthesize(query, contributions)
-
-
 class FakeCritic:
     def __init__(self):
         self.calls = []
@@ -44,6 +38,12 @@ class FakeCritic:
             "content": "critic synthesis",
             "critic_reviewed": True,
         }
+
+
+class SlowCritic(FakeCritic):
+    def synthesize(self, query: str, contributions: list[dict]) -> dict:
+        time.sleep(0.05)
+        return super().synthesize(query, contributions)
 
 
 
