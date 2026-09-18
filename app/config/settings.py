@@ -49,6 +49,7 @@ class Settings:
         "meta-llama/llama-4-scout-17b-16e-instruct",
     )
     mcp_url: str = os.getenv("MCP_URL", "http://127.0.0.1:3000/sse")
+    a2a_public_url: str = os.getenv("A2A_PUBLIC_URL", "")
     currency_api_url: str = os.getenv(
         "CURRENCY_API_URL",
         "https://api.frankfurter.dev/v2",
@@ -78,7 +79,7 @@ class Settings:
     a2a_task_retention_days: int = _env_int(
         "A2A_TASK_RETENTION_DAYS",
         30,
-        minimum=1,
+        minimum=0,
     )
     push_notification_require_https: bool = _env_bool(
         "PUSH_NOTIFICATION_REQUIRE_HTTPS",
