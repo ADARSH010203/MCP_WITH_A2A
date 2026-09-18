@@ -3,6 +3,7 @@
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from threading import Lock
+import time
 from typing import Any
 from uuid import uuid4
 
@@ -29,14 +30,14 @@ class CollaborationTrace:
     def __init__(self, trace_id: str | None = None) -> None:
         self.trace_id = trace_id or uuid4().hex
         self.started_at = datetime.now(timezone.utc)
-        self._started_at_monotonic = __import__("time").perf_counter()
+        self._started_at_monotonic = time.perf_counter()
         self._events: list[TraceEvent] = []
         self._lock = Lock()
 
     @property
     def duration_ms(self) -> float:
         return round(
-            (__import__("time").perf_counter() - self._started_at_monotonic) * 1000,
+            (time.perf_counter() - self._started_at_monotonic) * 1000,
             2,
         )
 
