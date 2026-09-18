@@ -1,7 +1,18 @@
+from .base import BaseAgent, ResponseFormat
 from .currency import CurrencyAgent
-from .specialized import (
-    BaseAgent, CodeGeneratorAgent, DeepLearningAgent, DsaAgent,
-    EmailWriterAgent, GameGeneratorAgent, ImageGeneratorAgent, RainformentAgent,
-)
+from .code import CodeGeneratorAgent
+from .deep_learning import DeepLearningAgent
+from .dsa import DsaAgent
+from .email import EmailWriterAgent
+from .game import GameGeneratorAgent
+from .image import ImageGeneratorAgent
+from .reinforcement import ReinforcementLearningAgent
 
-__all__ = ["CurrencyAgent", "BaseAgent", "CodeGeneratorAgent", "DeepLearningAgent", "DsaAgent", "EmailWriterAgent", "GameGeneratorAgent", "ImageGeneratorAgent", "RainformentAgent"]
+# Backward-compatible spelling used by the original project.
+RainformentAgent = ReinforcementLearningAgent
+
+__all__ = [
+    "BaseAgent", "ResponseFormat", "CurrencyAgent", "CodeGeneratorAgent",
+    "DeepLearningAgent", "DsaAgent", "EmailWriterAgent", "GameGeneratorAgent",
+    "ImageGeneratorAgent", "ReinforcementLearningAgent", "RainformentAgent",
+]
