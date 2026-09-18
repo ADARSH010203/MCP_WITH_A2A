@@ -2,7 +2,7 @@
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import AsyncIterable, List, Union
+from collections.abc import AsyncIterable
 
 from app.a2a.models import (
     Artifact,
@@ -57,7 +57,7 @@ class TaskManager(ABC):
     @abstractmethod
     async def on_send_task_subscribe(
         self, request: SendTaskStreamingRequest
-    ) -> Union[AsyncIterable[SendTaskStreamingResponse], JSONRPCResponse]:
+    ) -> AsyncIterable[SendTaskStreamingResponse] | JSONRPCResponse:
         pass
 
     @abstractmethod
@@ -75,7 +75,7 @@ class TaskManager(ABC):
     @abstractmethod
     async def on_resubscribe_to_task(
         self, request: TaskResubscriptionRequest
-    ) -> Union[AsyncIterable[SendTaskResponse], JSONRPCResponse]:
+    ) -> AsyncIterable[SendTaskResponse] | JSONRPCResponse:
         pass
 
 
@@ -88,7 +88,7 @@ class InMemoryTaskManager(TaskManager):
             self.store.load_push_notification_configs()
         )
         self.lock = asyncio.Lock()
-        self.task_sse_subscribers: dict[str, List[asyncio.Queue]] = {}
+        self.task_sse_subscribers: dict[str, list[asyncio.Queue]] = {}
         self.subscriber_lock = asyncio.Lock()
 
     async def get_stored_task(self, task_id: str) -> Task | None:
@@ -129,7 +129,7 @@ class InMemoryTaskManager(TaskManager):
     @abstractmethod
     async def on_send_task_subscribe(
         self, request: SendTaskStreamingRequest
-    ) -> Union[AsyncIterable[SendTaskStreamingResponse], JSONRPCResponse]:
+    ) -> AsyncIterable[SendTaskStreamingResponse] | JSONRPCResponse:
         pass
 
     async def set_push_notification_info(
@@ -249,7 +249,7 @@ class InMemoryTaskManager(TaskManager):
 
     async def on_resubscribe_to_task(
         self, request: TaskResubscriptionRequest
-    ) -> Union[AsyncIterable[SendTaskStreamingResponse], JSONRPCResponse]:
+    ) -> AsyncIterable[SendTaskStreamingResponse] | JSONRPCResponse:
         return new_not_implemented_error(request.id)
 
     async def update_store(
