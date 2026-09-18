@@ -203,12 +203,13 @@ class InMemoryTaskManager(TaskManager):
                 task = Task(
                     id=task_send_params.id,
                     sessionId=task_send_params.sessionId,
-                    messages=[task_send_params.message],
                     status=TaskStatus(state=TaskState.SUBMITTED),
                     history=[task_send_params.message],
                 )
                 self.tasks[task_send_params.id] = task
             else:
+                if task.history is None:
+                    task.history = []
                 task.history.append(task_send_params.message)
 
             return task
