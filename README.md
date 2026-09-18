@@ -242,3 +242,7 @@ Tasks with the same ID and the same session/message are treated as retries and d
 - "Explain convolutional neural networks."
 - "Explain Q-learning."
 - "Design a simple game concept."
+
+### Multi-agent cost control
+
+The collaboration coordinator limits a request to a small number of specialists (3 by default). This keeps cross-domain tasks useful without turning every request into an uncontrolled LLM fan-out.
