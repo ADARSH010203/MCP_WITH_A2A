@@ -33,6 +33,7 @@ from app.a2a.models import (
 from app.a2a.push_notification_auth import PushNotificationSenderAuth
 from app.a2a.task_store import SQLiteTaskStore
 from app.config.constants import SUPPORTED_CONTENT_TYPES
+from app.config.settings import settings
 
 
 class AgentTaskManager(InMemoryTaskManager):
@@ -111,57 +112,77 @@ class AgentTaskManager(InMemoryTaskManager):
                     query,
                     task_send_params.sessionId,
                 ):
-                status_value = item.get("status", "completed")
-                is_complete = item.get("is_task_complete", False)
-                needs_input = item.get("require_user_input", False)
-                content = str(item.get("content", "")).strip() or "No response was returned."
-
-                if status_value == "error":
-                    state = TaskState.FAILED
-                    message = Message(role="agent", parts=[{"type": "text", "text": content}])
-                    artifact = None
-                    final = True
-                elif needs_input:
-                    state = TaskState.INPUT_REQUIRED
-                    message = Message(role="agent", parts=[{"type": "text", "text": content}])
-                    artifact = None
-                    final = True
-                elif is_complete:
-                    state = TaskState.COMPLETED
-                    message = None
-                    artifact = Artifact(parts=[{"type": "text", "text": content}])
-                    final = True
-                else:
-                    state = TaskState.WORKING
-                    message = Message(role="agent", parts=[{"type": "text", "text": content}])
-                    artifact = None
-                    final = False
-
-                status = TaskStatus(state=state, message=message)
-                task = await self.update_store(
-                    task_send_params.id,
-                    status,
-                    None if artifact is None else [artifact],
-                )
-                await self.send_task_notification(task)
-
-                if artifact is not None:
-                    await self.enqueue_events_for_sse(
-                        task_send_params.id,
-                        TaskArtifactUpdateEvent(id=task_send_params.id, artifact=artifact),
+                    status_value = item.get("status", "completed")
+                    is_complete = item.get("is_task_complete", False)
+                    needs_input = item.get("require_user_input", False)
+                    content = (
+                        str(item.get("content", "")).strip()
+                        or "No response was returned."
                     )
 
-                await self.enqueue_events_for_sse(
-                    task_send_params.id,
-                    TaskStatusUpdateEvent(
-                        id=task_send_params.id,
-                        status=status,
-                        final=final,
-                    ),
-                )
+                    if status_value == "error":
+                        state = TaskState.FAILED
+                        message = Message(
+                            role="agent",
+                            parts=[{"type": "text", "text": content}],
+                        )
+                        artifact = None
+                        final = True
+                    elif needs_input:
+                        state = TaskState.INPUT_REQUIRED
+                        message = Message(
+                            role="agent",
+                            parts=[{"type": "text", "text": content}],
+                        )
+                        artifact = None
+                        final = True
+                    elif is_complete:
+                        state = TaskState.COMPLETED
+                        message = None
+                        artifact = Artifact(
+                            parts=[{"type": "text", "text": content}]
+                        )
+                        final = True
+                    else:
+                        state = TaskState.WORKING
+                        message = Message(
+                            role="agent",
+                            parts=[{"type": "text", "text": content}],
+                        )
+                        artifact = None
+                        final = False
+
+                    status = TaskStatus(state=state, message=message)
+                    task = await self.update_store(
+                        task_send_params.id,
+                        status,
+                        None if artifact is None else [artifact],
+                    )
+                    await self.send_task_notification(task)
+
+                    if artifact is not None:
+                        await self.enqueue_events_for_sse(
+                            task_send_params.id,
+                            TaskArtifactUpdateEvent(
+                                id=task_send_params.id,
+                                artifact=artifact,
+                            ),
+                        )
+
+                    await self.enqueue_events_for_sse(
+                        task_send_params.id,
+                        TaskStatusUpdateEvent(
+                            id=task_send_params.id,
+                            status=status,
+                            final=final,
+                        ),
+                    )
         except Exception:
             logger = logging.getLogger(__name__)
-            logger.exception("Streaming agent failed for task %s", task_send_params.id)
+            logger.exception(
+                "Streaming agent failed for task %s",
+                task_send_params.id,
+            )
             failure_status = TaskStatus(
                 state=TaskState.FAILED,
                 message=Message(
@@ -175,7 +196,11 @@ class AgentTaskManager(InMemoryTaskManager):
                 ),
             )
             try:
-                task = await self.update_store(task_send_params.id, failure_status, [])
+                task = await self.update_store(
+                    task_send_params.id,
+                    failure_status,
+                    [],
+                )
                 await self.send_task_notification(task)
             except Exception:
                 logger.exception(
@@ -248,11 +273,12 @@ class AgentTaskManager(InMemoryTaskManager):
 
         try:
             query = self._get_user_query(request.params)
-            agent_response = await asyncio.to_thread(
-                self.agent.invoke,
-                query,
-                request.params.sessionId,
-            )
+            async with self.execution_semaphore:
+                agent_response = await asyncio.to_thread(
+                    self.agent.invoke,
+                    query,
+                    request.params.sessionId,
+                )
         except Exception:
             logging.getLogger(__name__).exception(
                 "Agent invocation failed for task %s", request.params.id
