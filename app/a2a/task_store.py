@@ -1,6 +1,7 @@
 """Persistent storage for A2A task state using SQLite."""
 
 import sqlite3
+import threading
 from pathlib import Path
 
 from app.a2a.models import PushNotificationConfig, Task
@@ -17,8 +18,13 @@ class SQLiteTaskStore:
         self.connection = sqlite3.connect(
             path,
             check_same_thread=False,
+            timeout=10,
         )
-        self.connection.execute(
+        self._lock = threading.RLock()
+        with self._lock:
+            self.connection.execute("PRAGMA journal_mode=WAL")
+            self.connection.execute("PRAGMA busy_timeout=10000")
+            self.connection.execute(
             """
             CREATE TABLE IF NOT EXISTS tasks (
                 id TEXT PRIMARY KEY,
@@ -33,17 +39,20 @@ class SQLiteTaskStore:
                 payload TEXT NOT NULL
             )
             """
-        )
-        self.connection.commit()
+            )
+            self.connection.commit()
 
     def load_tasks(self) -> dict[str, Task]:
-        rows = self.connection.execute("SELECT id, payload FROM tasks").fetchall()
+        with self._lock:
+            with self._lock:
+            rows = self.connection.execute("SELECT id, payload FROM tasks").fetchall()
         return {task_id: Task.model_validate_json(payload) for task_id, payload in rows}
 
     def load_push_notification_configs(
         self,
     ) -> dict[str, PushNotificationConfig]:
-        rows = self.connection.execute(
+        with self._lock:
+            rows = self.connection.execute(
             "SELECT task_id, payload FROM push_notification_configs"
         ).fetchall()
         return {
@@ -53,7 +62,8 @@ class SQLiteTaskStore:
 
     def save_task(self, task: Task) -> None:
         payload = task.model_dump_json()
-        self.connection.execute(
+        with self._lock:
+            self.connection.execute(
             """
             INSERT INTO tasks (id, payload)
             VALUES (?, ?)
@@ -61,14 +71,15 @@ class SQLiteTaskStore:
             """,
             (task.id, payload),
         )
-        self.connection.commit()
+            self.connection.commit()
 
     def save_push_notification_config(
         self,
         task_id: str,
         config: PushNotificationConfig,
     ) -> None:
-        self.connection.execute(
+        with self._lock:
+            self.connection.execute(
             """
             INSERT INTO push_notification_configs (task_id, payload)
             VALUES (?, ?)
@@ -76,7 +87,7 @@ class SQLiteTaskStore:
             """,
             (task_id, config.model_dump_json()),
         )
-        self.connection.commit()
+            self.connection.commit()
 
     def purge_expired(self, retention_days: int) -> int:
         """Delete old terminal tasks and their callback configuration."""
@@ -111,16 +122,18 @@ class SQLiteTaskStore:
         if not expired_ids:
             return 0
 
-        self.connection.executemany(
-            "DELETE FROM tasks WHERE id = ?",
-            [(task_id,) for task_id in expired_ids],
-        )
-        self.connection.executemany(
-            "DELETE FROM push_notification_configs WHERE task_id = ?",
-            [(task_id,) for task_id in expired_ids],
-        )
-        self.connection.commit()
+        with self._lock:
+            self.connection.executemany(
+                "DELETE FROM tasks WHERE id = ?",
+                [(task_id,) for task_id in expired_ids],
+            )
+            self.connection.executemany(
+                "DELETE FROM push_notification_configs WHERE task_id = ?",
+                [(task_id,) for task_id in expired_ids],
+            )
+            self.connection.commit()
         return len(expired_ids)
 
     def close(self) -> None:
-        self.connection.close()
+        with self._lock:
+            self.connection.close()
