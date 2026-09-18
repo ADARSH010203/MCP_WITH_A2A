@@ -21,6 +21,7 @@ from app.agents.reinforcement import ReinforcementLearningAgent
 from app.config.settings import settings
 from app.routing.planner import CollaborationPlan, CollaborationPlanner
 from app.routing.registry import DEFAULT_AGENT_REGISTRY
+from app.routing.remote_specialist import RemoteA2ASpecialist
 from app.routing.tracing import CollaborationTrace
 
 
@@ -217,11 +218,19 @@ class MultiAgent:
             if existing_agent is not None:
                 return existing_agent
 
-            factory = self.agent_factories.get(agent_type)
-            if factory is None:
-                raise ValueError(f"Unsupported agent type: {agent_type}")
+            remote_url = settings.a2a_specialist_urls.get(agent_type)
+            if remote_url:
+                agent = RemoteA2ASpecialist(
+                    agent_type=agent_type,
+                    url=remote_url,
+                    api_key=settings.a2a_api_key,
+                )
+            else:
+                factory = self.agent_factories.get(agent_type)
+                if factory is None:
+                    raise ValueError(f"Unsupported agent type: {agent_type}")
+                agent = factory()
 
-            agent = factory()
             self.agents[agent_type] = agent
             return agent
 
