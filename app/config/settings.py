@@ -35,6 +35,7 @@ class Settings:
     a2a_rate_limit_per_minute: int = int(os.getenv("A2A_RATE_LIMIT_PER_MINUTE", "60"))
     a2a_max_concurrent_tasks: int = int(os.getenv("A2A_MAX_CONCURRENT_TASKS", "8"))
     a2a_max_input_chars: int = int(os.getenv("A2A_MAX_INPUT_CHARS", "20000"))
+    a2a_task_retention_days: int = int(os.getenv("A2A_TASK_RETENTION_DAYS", "30"))
     push_notification_require_https: bool = _env_bool(
         "PUSH_NOTIFICATION_REQUIRE_HTTPS",
         True,
