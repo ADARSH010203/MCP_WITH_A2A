@@ -121,28 +121,37 @@ class HostAgent:
             state = result.get("status", {}).get("state", "unknown")
             if state == TaskState.COMPLETED:
                 artifacts = result.get("artifacts") or []
-                metadata = (
-                    artifacts[0].get("metadata", {})
-                    if artifacts and isinstance(artifacts[0], dict)
-                    else {}
-                )
-                agents_used = metadata.get("agents_used", [])
-                mode = metadata.get("collaboration_mode", "single-agent")
-                reviewed = metadata.get("critic_reviewed", False)
+                content_parts: list[str] = []
+                metadata: dict[str, Any] = {}
 
-                if mode == "multi-agent":
-                    agents_text = ", ".join(agents_used) or "multiple specialists"
-                    review = "completed" if reviewed else "not completed"
-                    return (
-                        f"Task {task_id} completed using {agents_text}. "
-                        f"Critic review: {review}."
-                    )
-                return (
-                    f"Task {task_id} completed by "
-                    f"{agents_used[0] if agents_used else 'the agent'}."
-                )
+                for artifact in artifacts:
+                    if not isinstance(artifact, dict):
+                        continue
+                    artifact_metadata = artifact.get("metadata")
+                    if isinstance(artifact_metadata, dict):
+                        metadata.update(artifact_metadata)
+
+                    for part in artifact.get("parts") or []:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            text = str(part.get("text", "")).strip()
+                            if text:
+                                content_parts.append(text)
+
+                if content_parts:
+                    return "\n\n".join(content_parts)
+
+                return "The remote agent completed the task but returned no text content."
             elif state == TaskState.INPUT_REQUIRED:
-                return f"Task {task_id} needs more input."
+                message = result.get("status", {}).get("message", {})
+                parts = message.get("parts") if isinstance(message, dict) else []
+                text_parts = [
+                    str(part.get("text", "")).strip()
+                    for part in (parts or [])
+                    if isinstance(part, dict)
+                    and part.get("type") == "text"
+                    and str(part.get("text", "")).strip()
+                ]
+                return "\n\n".join(text_parts) or f"Task {task_id} needs more input."
             else:
                 return f"Task {task_id} ended with state={state}."
         except Exception as exc:
