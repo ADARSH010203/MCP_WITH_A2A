@@ -422,6 +422,10 @@ class MultiAgent:
                 else f"{session_id}:{agent_type}:retry-{attempt}",
                 budget,
             )
+            if outcome["status"] == "budget_exceeded":
+                outcome["attempts"] = attempt
+                return outcome
+
             outcome["attempts"] = attempt + 1
 
             if outcome["status"] != "error":
