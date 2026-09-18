@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="MCP + A2A Multi-Agent System — architecture, agents, tools, observability, evaluation and API playground.">
+  <title>MCP + A2A Multi-Agent System</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#top">MCP <span>+</span> A2A</a>
+    <nav class="nav" aria-label="Primary">
+      <a href="#architecture">Architecture</a>
+      <a href="#agents">Agents</a>
+      <a href="#protocols">Protocols</a>
+      <a href="#evaluation">Evaluation</a>
+      <a href="#playground">Playground</a>
+      <a class="github-link" href="https://github.com/ADARSH010203/MCP_WITH_A2A" target="_blank" rel="noreferrer">GitHub ↗</a>
+    </nav>
+  </header>
+
+  <main id="top">
+    <section class="hero shell">
+      <div class="hero-copy">
+        <p class="eyebrow">MULTI-AGENT INFRASTRUCTURE</p>
+        <h1>Intelligent workflows powered by <span>A2A</span> and <span>MCP</span>.</h1>
+        <p class="lede">
+          A modular coordinator that routes requests, plans specialist collaboration,
+          calls external tools through MCP, and exposes task lifecycle and streaming over A2A.
+        </p>
+        <div class="hero-actions">
+          <a class="button primary" href="#playground">Try the API</a>
+          <a class="button secondary" href="#architecture">Explore architecture</a>
+        </div>
+        <div class="stats">
+          <div><strong>8</strong><span>specialists</span></div>
+          <div><strong>12</strong><span>routing benchmarks</span></div>
+          <div><strong>2</strong><span>MCP tools</span></div>
+          <div><strong>61+</strong><span>automated tests</span></div>
+        </div>
+      </div>
+      <div class="hero-card">
+        <div class="status-row"><span class="dot"></span> Coordinator online</div>
+        <div class="mini-flow">
+          <div class="flow-node">User request</div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-node accent">A2A gateway</div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-node accent">Router + Planner</div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-grid">
+            <span>DL</span><span>Code</span><span>DSA</span><span>RL</span>
+            <span>Game</span><span>Image</span><span>Email</span><span>Currency</span>
+          </div>
+          <div class="flow-arrow">↓</div>
+          <div class="flow-node">Critic → final response</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="architecture" class="section shell">
+      <div class="section-heading">
+        <p class="eyebrow">ARCHITECTURE</p>
+        <h2>One coordinator, many specialists.</h2>
+        <p>Simple requests stay cheap. Cross-domain requests become explicit dependency graphs before any model call begins.</p>
+      </div>
+
+      <div class="architecture">
+        <div class="arch-column">
+          <div class="arch-card"><small>01</small><strong>Host / Client</strong><span>Sends A2A tasks</span></div>
+          <div class="arch-line">↓</div>
+          <div class="arch-card"><small>02</small><strong>A2A Server</strong><span>JSON-RPC + SSE + task lifecycle</span></div>
+          <div class="arch-line">↓</div>
+          <div class="arch-card highlight"><small>03</small><strong>Router + Planner</strong><span>Deterministic capability matching and dependency scheduling</span></div>
+        </div>
+        <div class="arch-specialists">
+          <div class="specialist-row">
+            <div class="agent-chip blue">Deep Learning</div>
+            <div class="agent-chip purple">Reinforcement</div>
+            <div class="agent-chip orange">Game</div>
+          </div>
+          <div class="handoff-arrow">↘ &nbsp; specialist findings / handoffs &nbsp; ↙</div>
+          <div class="agent-chip green wide">Code / Implementation</div>
+          <div class="specialist-row">
+            <div class="agent-chip">DSA</div>
+            <div class="agent-chip">Email</div>
+            <div class="agent-chip">Image</div>
+            <div class="agent-chip">Currency</div>
+          </div>
+        </div>
+        <div class="arch-column">
+          <div class="arch-card"><small>04</small><strong>MCP Tools</strong><span>Currency + safe calculator</span></div>
+          <div class="arch-line">↓</div>
+          <div class="arch-card"><small>05</small><strong>Critic</strong><span>Consistency, completeness and synthesis</span></div>
+          <div class="arch-line">↓</div>
+          <div class="arch-card highlight"><small>06</small><strong>Final response</strong><span>Result + plan + trace metadata</span></div>
+        </div>
+      </div>
+
+      <div class="code-callout">
+        <div>
+          <p class="eyebrow">DEPENDENCY EXAMPLE</p>
+          <h3>Domain-first implementation</h3>
+        </div>
+        <pre><code>Deep Learning ──────┐
+                    ├──&gt; Code ───&gt; Critic
+RL ─────────────────┘</code></pre>
+      </div>
+    </section>
+
+    <section id="agents" class="section muted">
+      <div class="shell">
+        <div class="section-heading">
+          <p class="eyebrow">SPECIALISTS</p>
+          <h2>Built-in agents with explicit responsibilities.</h2>
+          <p>Routing metadata lives in a validated capability registry, so every specialist has documented triggers, priorities and dependencies.</p>
+        </div>
+        <div class="agent-grid">
+          <article class="agent-card"><div class="icon">◎</div><h3>Currency</h3><p>Reference-rate lookups through the MCP currency tool.</p><code>exchange rate · forex · USD</code></article>
+          <article class="agent-card"><div class="icon">✉</div><h3>Email</h3><p>Professional email drafting with recipient and tone context.</p><code>email · letter · subject line</code></article>
+          <article class="agent-card"><div class="icon">⌘</div><h3>Code</h3><p>Implementation, debugging, APIs and maintainable code.</p><code>code · debug · implementation</code></article>
+          <article class="agent-card"><div class="icon">◇</div><h3>Image</h3><p>Visual concepts, illustrations and image-generation prompts.</p><code>generate an image · illustration</code></article>
+          <article class="agent-card"><div class="icon">△</div><h3>Game</h3><p>Game mechanics, levels, gameplay and engine decisions.</p><code>game · Unity · gameplay</code></article>
+          <article class="agent-card"><div class="icon">∑</div><h3>Deep Learning</h3><p>Architectures, training, evaluation, NLP, RAG and vision.</p><code>CNN · transformer · PyTorch</code></article>
+          <article class="agent-card"><div class="icon">↗</div><h3>Reinforcement</h3><p>Policies, rewards, environments and RL algorithms.</p><code>Q-learning · DQN · policy gradient</code></article>
+          <article class="agent-card"><div class="icon">#</div><h3>DSA</h3><p>Algorithms, correctness, complexity and edge cases.</p><code>binary search · graph · DP</code></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="protocols" class="section shell">
+      <div class="section-heading">
+        <p class="eyebrow">PROTOCOL LAYER</p>
+        <h2>A2A for tasks. MCP for tools.</h2>
+      </div>
+      <div class="protocol-grid">
+        <article class="protocol-card">
+          <span class="protocol-tag">A2A</span>
+          <h3>Agent communication boundary</h3>
+          <p>JSON-RPC task operations, Agent Cards, task state, cancellation, SSE streaming and push-notification support.</p>
+          <pre><code>POST /
+tasks/send
+tasks/sendSubscribe
+tasks/get
+tasks/cancel</code></pre>
+        </article>
+        <article class="protocol-card">
+          <span class="protocol-tag">MCP</span>
+          <h3>External tool boundary</h3>
+          <p>The coordinator can expose domain-specific capabilities through a dedicated MCP server instead of hard-coding provider calls into every specialist.</p>
+          <pre><code>Currency Tools
+├─ get_exchange_rate
+└─ calculate</code></pre>
+        </article>
+        <article class="protocol-card">
+          <span class="protocol-tag">REMOTE</span>
+          <h3>Distributed specialists</h3>
+          <p>Configured specialists can run behind their own A2A services. The coordinator discovers their Agent Card before sending work.</p>
+          <pre><code>Coordinator
+  │ A2A
+  ├── Code :8101
+  └── DL   :8102</code></pre>
+        </article>
+      </div>
+    </section>
+
+    <section id="observability" class="section muted">
+      <div class="shell">
+        <div class="section-heading">
+          <p class="eyebrow">OBSERVABILITY</p>
+          <h2>Every collaboration leaves a trace.</h2>
+          <p>Trace metadata makes the execution path visible without relying on log parsing.</p>
+        </div>
+        <div class="trace-card">
+          <div class="trace-header"><span>trace_7f3e...</span><span>decision path</span></div>
+          <div class="trace-list">
+            <div><span class="step">01</span><strong>plan_created</strong><em>3 specialists</em></div>
+            <div><span class="step">02</span><strong>specialist_started</strong><em>deep_learning</em></div>
+            <div><span class="step">03</span><strong>specialist_completed</strong><em>420 ms</em></div>
+            <div><span class="step">04</span><strong>handoff</strong><em>deep_learning → code</em></div>
+            <div><span class="step">05</span><strong>critic_completed</strong><em>210 ms</em></div>
+            <div><span class="step">06</span><strong>request_completed</strong><em>trace attached</em></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="evaluation" class="section shell">
+      <div class="section-heading">
+        <p class="eyebrow">EVALUATION</p>
+        <h2>Routing quality is measurable.</h2>
+        <p>Phase 7 evaluates deterministic orchestration without making live LLM calls, keeping regression checks reproducible in CI.</p>
+      </div>
+      <div class="metric-grid">
+        <div class="metric"><strong>Routing</strong><span>Primary specialist correctness</span></div>
+        <div class="metric"><strong>Selection</strong><span>Expected specialist set</span></div>
+        <div class="metric"><strong>Collaboration</strong><span>Single vs multi-agent mode</span></div>
+        <div class="metric"><strong>Handoffs</strong><span>Dependency flow correctness</span></div>
+        <div class="metric"><strong>Average</strong><span>Decision latency</span></div>
+        <div class="metric"><strong>P95</strong><span>Tail decision latency</span></div>
+      </div>
+      <div class="command-box"><span>Run locally</span><code>python -m experiments.run_evaluation</code></div>
+    </section>
+
+    <section id="playground" class="section playground">
+      <div class="shell">
+        <div class="section-heading">
+          <p class="eyebrow">API PLAYGROUND</p>
+          <h2>Send a real A2A task.</h2>
+          <p>The form below builds the same JSON-RPC payload used by the project's A2A client. Browser calls require the server to allow CORS for the page's origin.</p>
+        </div>
+        <div class="playground-grid">
+          <form id="task-form" class="playground-form">
+            <label>
+              A2A endpoint
+              <input id="endpoint" type="url" value="http://127.0.0.1:8000/" required>
+            </label>
+            <label>
+              Session ID
+              <input id="session-id" type="text" value="web-demo-session">
+            </label>
+            <label>
+              Task
+              <textarea id="query" rows="5" required>Explain binary search and its time complexity.</textarea>
+            </label>
+            <button class="button primary" type="submit">Send tasks/send</button>
+            <p id="playground-status" class="form-status">Ready.</p>
+          </form>
+          <div class="response-panel">
+            <div class="panel-head"><span>JSON-RPC request</span><button id="copy-request" class="copy-button" type="button">Copy</button></div>
+            <pre id="request-preview"><code></code></pre>
+            <div class="panel-head"><span>Response</span><button id="clear-response" class="copy-button" type="button">Clear</button></div>
+            <pre id="response-preview"><code>No response yet.</code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer shell">
+    <div><strong>MCP + A2A Multi-Agent System</strong><span>Deterministic orchestration · Remote A2A · MCP tools · Evaluation</span></div>
+    <a href="https://github.com/ADARSH010203/MCP_WITH_A2A" target="_blank" rel="noreferrer">View source ↗</a>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
