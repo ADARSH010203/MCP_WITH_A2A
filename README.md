@@ -32,7 +32,7 @@ Multi-Agent Router
 
 1. The host sends a task to the A2A JSON-RPC endpoint.
 2. The A2A task manager validates the request and creates the task.
-3. The router selects a specialized agent using deterministic keyword/phrase matching.
+3. The coordinator scores domain keywords and phrases using deterministic rules.
 4. The selected agent processes the request with the configured Groq model.
 5. Currency requests can call the MCP SSE tool server.
 6. The task manager returns the result or streams task updates through SSE.
@@ -229,7 +229,7 @@ ruff check app host frontend scripts tests
 
 ### Collaboration behavior
 
-The router keeps simple requests cheap by using one specialist. When a request clearly spans multiple domains—for example, “Build a Python CNN image-classification pipeline”—the coordinator selects up to three relevant specialists. Their tasks run independently, using separate conversation threads, and a critic agent compares the findings and produces the final response. If one specialist fails, the critic can still synthesize the successful findings and explicitly acknowledge the missing contribution.
+The router keeps simple requests cheap by using one specialist. When a request clearly spans multiple domains—for example, “Build a Python CNN image-classification pipeline”—the coordinator selects up to three relevant specialists. Lead specialists can run in parallel using separate conversation threads. Dependent work such as coding receives upstream specialist findings before execution, and a critic agent reviews the combined findings and produces the final response. If one specialist fails, the critic can still synthesize the successful findings and explicitly acknowledge the missing contribution.
 ## Task Lifecycle
 
 ```text
