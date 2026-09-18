@@ -79,28 +79,21 @@ class HostAgent:
                 self.initialization_errors[addr] = str(exc)
 
     def list_agents_info(self) -> list:
-        """Return a list of {name, description, url, streaming} for each loaded agent."""
+        """Return information for successfully discovered remote agents."""
         infos = []
-        for addr, c in self.clients.items():
-            card = c.agent_card
-            if card:
-                infos.append(
-                    {
-                        "name": card.name,
-                        "description": card.description,
-                        "url": card.url,
-                        "streaming": card.capabilities.streaming,
-                    }
-                )
-            else:
-                infos.append(
-                    {
-                        "name": "Unknown",
-                        "description": "Not loaded",
-                        "url": addr,
-                        "streaming": False,
-                    }
-                )
+        for client in self.clients.values():
+            card = client.agent_card
+            if card is None:
+                continue
+
+            infos.append(
+                {
+                    "name": card.name,
+                    "description": card.description,
+                    "url": card.url,
+                    "streaming": card.capabilities.streaming,
+                }
+            )
         return infos
 
     def get_client_by_name(self, agent_name: str) -> Optional[RemoteAgentClient]:
