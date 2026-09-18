@@ -20,6 +20,7 @@ from app.agents.image import ImageGeneratorAgent
 from app.agents.reinforcement import ReinforcementLearningAgent
 from app.config.settings import settings
 from app.routing.planner import CollaborationPlan, CollaborationPlanner
+from app.routing.registry import DEFAULT_AGENT_REGISTRY
 from app.routing.tracing import CollaborationTrace
 
 
@@ -54,125 +55,19 @@ class CallBudget:
 class MultiAgent:
     """Select specialists and coordinate multi-agent collaboration when useful."""
 
-    ROUTES: tuple[tuple[str, tuple[str, ...]], ...] = (
-        (
-            "currency",
-            ("currency", "exchange rate", "exchange rates", "forex", "usd", "eur", "gbp"),
-        ),
-        (
-            "email",
-            (
-                "email",
-                "mail",
-                "draft an email",
-                "professional message",
-                "subject line",
-                "letter",
-            ),
-        ),
-        (
-            "image",
-            ("image", "picture", "photo", "illustration", "generate an image"),
-        ),
-        (
-            "game",
-            (
-                "game",
-                "gameplay",
-                "level design",
-                "character design",
-                "game mechanics",
-                "unity",
-                "unreal engine",
-            ),
-        ),
-        (
-            "deep_learning",
-            (
-                "deep learning",
-                "neural network",
-                "neural networks",
-                "model training",
-                "cnn",
-                "transformer",
-                "transformer architecture",
-                "pytorch",
-                "tensorflow",
-                "rag",
-                "nlp",
-            ),
-        ),
-        (
-            "reinforcement",
-            (
-                "reinforcement learning",
-                "reinforcement",
-                "q-learning",
-                "policy gradient",
-                "dqn",
-            ),
-        ),
-        (
-            "dsa",
-            (
-                "dsa",
-                "data structures",
-                "binary search",
-                "sorting",
-                "shortest path",
-                "dynamic programming",
-                "backtracking",
-                "graph",
-                "linked list",
-                "binary tree",
-                "heap",
-                "stack",
-                "queue",
-            ),
-        ),
-        (
-            "code",
-            (
-                "code",
-                "program",
-                "programming",
-                "function",
-                "class",
-                "script",
-                "algorithm",
-                "python",
-                "java",
-                "javascript",
-                "debug",
-                "bug fix",
-                "api",
-                "implementation",
-            ),
-        ),
+    AGENT_REGISTRY = DEFAULT_AGENT_REGISTRY
+
+    # Kept as a compatibility view for callers that used the old route table.
+    ROUTES = AGENT_REGISTRY.as_routes()
+    TASK_FOCUS = AGENT_REGISTRY.task_focus_map()
+    HANDOFF_TARGETS = AGENT_REGISTRY.dependency_map()
+    PRIORITY_PHRASES: tuple[tuple[str, str], ...] = (
+        ("deep_learning", "graph neural network"),
+        ("deep_learning", "image classification"),
+        ("reinforcement", "deep reinforcement learning"),
+        ("dsa", "graph algorithm"),
+        ("dsa", "graph traversal"),
     )
-
-    TASK_FOCUS: dict[str, str] = {
-        "currency": "Provide the relevant currency or exchange-rate facts and clearly state the rate/date returned by the currency tool.",
-        "email": "Focus on communication goals, recipient context, tone, structure, and a ready-to-use email.",
-        "image": "Focus on the visual concept, composition, style, and concrete image-generation prompt requirements.",
-        "game": "Focus on gameplay, mechanics, level/character design, and practical game-development decisions.",
-        "deep_learning": "Focus on model architecture, data, training, evaluation, optimization, and ML-specific tradeoffs.",
-        "reinforcement": "Focus on environment, rewards, policies, learning algorithms, evaluation, and RL-specific tradeoffs.",
-        "dsa": "Focus on algorithm choice, correctness, complexity, edge cases, and DSA reasoning.",
-        "code": "Focus on implementation details, interfaces, maintainability, debugging, and runnable code where appropriate.",
-    }
-
-    HANDOFF_TARGETS: dict[str, tuple[str, ...]] = {
-        "code": (
-            "deep_learning",
-            "reinforcement",
-            "dsa",
-            "game",
-            "image",
-            "currency",
-        )
-    }
-
     COLLABORATION_KEYWORDS: tuple[str, ...] = (
         "build",
         "design",
@@ -244,21 +139,7 @@ class MultiAgent:
 
     @classmethod
     def _score_agent_types(cls, text: str) -> dict[str, int]:
-        scores: dict[str, int] = {}
-
-        for agent_type, keywords in cls.ROUTES:
-            score = sum(
-                2 if " " in keyword or "-" in keyword else 1
-                for keyword in keywords
-                if cls._keyword_matches(text, keyword)
-            )
-            scores[agent_type] = score
-
-        for agent_type, phrase in cls.PRIORITY_PHRASES:
-            if cls._keyword_matches(text, phrase):
-                scores[agent_type] = scores.get(agent_type, 0) + 3
-
-        return {agent_type: score for agent_type, score in scores.items() if score > 0}
+        return cls.AGENT_REGISTRY.score_all(text, cls._keyword_matches)
 
     def _detect_agent_type(self, message: Message) -> str:
         if not message.parts:
@@ -290,7 +171,11 @@ class MultiAgent:
             agent_type
             for agent_type, _score in sorted(
                 scores.items(),
-                key=lambda item: (-item[1], item[0]),
+                key=lambda item: (
+                    -item[1],
+                    -self.AGENT_REGISTRY.get(item[0]).priority,
+                    item[0],
+                ),
             )
         ]
         selected = ranked[:limit]
@@ -314,11 +199,16 @@ class MultiAgent:
         agent_types: list[str] | None = None,
     ) -> CollaborationPlan:
         selected_agents = agent_types or self.select_agent_types(query)
+        parallel_capabilities = {
+            agent: self.AGENT_REGISTRY.get(agent).can_parallel
+            for agent in selected_agents
+        }
         return self.planner.build(
             query=query,
             agent_types=selected_agents,
             task_focus=self.TASK_FOCUS,
             handoff_targets=self.HANDOFF_TARGETS,
+            parallel_capabilities=parallel_capabilities,
         )
 
     def _get_agent(self, agent_type: str) -> Agent:
