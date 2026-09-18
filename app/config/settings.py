@@ -71,6 +71,11 @@ class Settings:
         8,
         minimum=1,
     )
+    a2a_max_collaborative_agents: int = _env_int(
+        "A2A_MAX_COLLABORATIVE_AGENTS",
+        3,
+        minimum=1,
+    )
     a2a_max_input_chars: int = _env_int(
         "A2A_MAX_INPUT_CHARS",
         20000,
