@@ -97,7 +97,9 @@ MCP_WITH_A2A/
 │   │   └── tools/
 │   │       └── currency.py
 │   ├── routing/
-│   │   └── router.py
+│   │   ├── router.py
+│   │   ├── planner.py
+│   │   └── tracing.py
 │   └── config/
 │       ├── constants.py
 │       └── settings.py
@@ -241,6 +243,25 @@ ruff check app host frontend scripts tests
 ### Collaboration behavior
 
 The router keeps simple requests cheap by using one specialist. When a request clearly spans multiple domains—for example, “Build a Python CNN image-classification pipeline”—the coordinator selects up to three relevant specialists. The collaboration planner then records the execution mode, specialist steps, dependencies, handoffs, and rationale before any specialist runs. Lead specialists can run in parallel using separate conversation threads. Dependent work such as coding receives upstream specialist findings before execution, and a critic agent reviews the combined findings and produces the final response. The structured plan is also exposed in task metadata so clients can inspect how the collaboration was organized. If one specialist fails, the critic can still synthesize the successful findings and explicitly acknowledge the missing contribution.
+### Collaboration observability
+
+Each top-level request gets a lightweight in-process trace with a unique trace ID. The trace records the planner decision, specialist start/completion status, retries, handoffs, critic execution, and final coordinator status with elapsed time. The latest trace is attached to router responses and A2A task/stream metadata, so clients can inspect the execution path without parsing log text.
+
+Example trace stages:
+
+```text
+plan_created
+specialist_started
+specialist_completed
+specialist_retry
+handoff
+critic_started
+critic_completed
+request_completed
+```
+
+Trace data is intended for debugging and UI visibility, not as a distributed tracing backend. It remains process-local and is carried with the task metadata.
+
 ## Task Lifecycle
 
 ```text
