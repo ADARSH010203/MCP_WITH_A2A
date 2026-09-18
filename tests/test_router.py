@@ -27,6 +27,12 @@ class FakeAgent:
         }
 
 
+class SlowCritic(FakeCritic):
+    def synthesize(self, query: str, contributions: list[dict]) -> dict:
+        time.sleep(0.05)
+        return super().synthesize(query, contributions)
+
+
 class FakeCritic:
     def __init__(self):
         self.calls = []
@@ -330,3 +336,19 @@ def test_call_budget_limits_retries_and_preserves_attempt_count():
     assert result["status"] == "budget_exceeded"
     assert result["attempts"] == 1
     assert agents["code"].attempts == 1
+
+
+
+def test_critic_timeout_falls_back_to_successful_findings():
+    agents = fake_agents()
+    router = MultiAgent(agents=agents, critic=SlowCritic())
+    router.specialist_timeout_seconds = 0.01
+
+    result = router.invoke(
+        "Build a Python CNN image classification pipeline",
+        "session-critic-timeout",
+    )
+
+    assert result["status"] == "completed"
+    assert result["critic_reviewed"] is False
+    assert "deep_learning result" in result["content"]
