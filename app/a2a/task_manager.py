@@ -128,6 +128,10 @@ class AgentTaskManager(InMemoryTaskManager):
                         "critic_reviewed": item.get("critic_reviewed", False),
                         "collaboration_plan": item.get("collaboration_plan", {}),
                     }
+                    metadata["collaboration_trace"] = item.get(
+                        "collaboration_trace",
+                        {},
+                    )
                     content = (
                         str(item.get("content", "")).strip()
                         or "No response was returned."
@@ -147,6 +151,7 @@ class AgentTaskManager(InMemoryTaskManager):
                         message = Message(
                             role="agent",
                             parts=[{"type": "text", "text": content}],
+                            metadata=metadata,
                         )
                         artifact = None
                         final = True
@@ -443,6 +448,7 @@ class AgentTaskManager(InMemoryTaskManager):
             ),
             "critic_reviewed": agent_response.get("critic_reviewed", False),
             "collaboration_plan": agent_response.get("collaboration_plan", {}),
+            "collaboration_trace": agent_response.get("collaboration_trace", {}),
         }
 
         if response_status == "input_required":
