@@ -24,6 +24,7 @@ class Settings:
     )
     mcp_url: str = os.getenv("MCP_URL", "http://127.0.0.1:3000/sse")
     a2a_task_db_path: str = os.getenv("A2A_TASK_DB_PATH", ".data/a2a_tasks.db")
+    a2a_api_key: str = os.getenv("A2A_API_KEY", "")
     push_notification_require_https: bool = _env_bool(
         "PUSH_NOTIFICATION_REQUIRE_HTTPS",
         True,
