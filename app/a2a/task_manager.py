@@ -218,12 +218,12 @@ class AgentTaskManager(InMemoryTaskManager):
                 ),
             )
             try:
-                task = await self.update_store(
+                failure_task = await self.update_store(
                     task_send_params.id,
                     failure_status,
                     [],
                 )
-                await self.send_task_notification(task)
+                await self.send_task_notification(failure_task)
             except Exception:
                 logger.exception(
                     "Failed to store streaming failure for task %s",
