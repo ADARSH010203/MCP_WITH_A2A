@@ -694,6 +694,7 @@ class MultiAgent:
         session_id: str,
         upstream_findings: list[dict[str, Any]] | None = None,
         budget: CallBudget | None = None,
+        trace: CollaborationTrace | None = None,
     ) -> dict[str, Any]:
         active_budget = budget or CallBudget(self.max_agent_calls_per_task)
         prompt = self._build_subtask(query, agent_type, upstream_findings)
@@ -702,6 +703,7 @@ class MultiAgent:
             prompt,
             session_id,
             active_budget,
+            trace=trace,
         )
 
     def _run_parallel_specialists(
@@ -711,6 +713,7 @@ class MultiAgent:
         session_id: str,
         upstream_findings: list[dict[str, Any]] | None = None,
         budget: CallBudget | None = None,
+        trace: CollaborationTrace | None = None,
     ) -> list[dict[str, Any]]:
         if not agent_types:
             return []
@@ -729,6 +732,7 @@ class MultiAgent:
                     session_id,
                     upstream_findings,
                     active_budget,
+                    trace,
                 )
                 for agent_type in agent_types
             ]
@@ -755,6 +759,7 @@ class MultiAgent:
             query,
             session_id,
             budget=budget,
+            trace=trace,
         )
 
         for target in handoff_targets:
@@ -778,6 +783,7 @@ class MultiAgent:
                     session_id,
                     upstream_findings=upstream,
                     budget=budget,
+                    trace=trace,
                 )
             )
             trace.record(
