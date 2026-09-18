@@ -466,6 +466,7 @@ class MultiAgent:
                         + "."
                     ),
                     "agents_used": agent_types,
+                    "collaboration_plan": plan.to_dict(),
                 }
 
             return {
