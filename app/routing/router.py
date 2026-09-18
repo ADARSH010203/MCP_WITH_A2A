@@ -702,8 +702,6 @@ class MultiAgent:
                 for step in plan.steps
                 if step.parallel_group == group and step.agent != "critic"
             ]
-            group_agents = [step.agent for step in group_steps]
-
             def upstream_for(step: Any) -> list[dict[str, Any]]:
                 return [
                     outcome
