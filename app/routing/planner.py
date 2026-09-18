@@ -70,8 +70,9 @@ class CollaborationPlanner:
     def _assign_parallel_groups(
         agents: tuple[str, ...],
         graph: dict[str, tuple[str, ...]],
+        parallel_capabilities: dict[str, bool],
     ) -> dict[str, int]:
-        groups: dict[str, int] = {}
+        levels: dict[str, int] = {}
         remaining = set(agents)
 
         while remaining:
@@ -79,15 +80,42 @@ class CollaborationPlanner:
                 agent
                 for agent in agents
                 if agent in remaining
-                and all(dependency in groups for dependency in graph[agent])
+                and all(dependency in levels for dependency in graph[agent])
             ]
             if not ready:
                 raise ValueError("Agent dependency graph contains a cycle.")
 
-            group = max((groups[d] for agent in ready for d in graph[agent]), default=0) + 1
             for agent in ready:
-                groups[agent] = group
+                levels[agent] = (
+                    max((levels[dependency] for dependency in graph[agent]), default=0)
+                    + 1
+                )
                 remaining.remove(agent)
+
+        groups: dict[str, int] = {}
+        current_group = 1
+
+        for level in sorted(set(levels.values())):
+            parallel_agents = [
+                agent
+                for agent in agents
+                if levels[agent] == level and parallel_capabilities.get(agent, True)
+            ]
+            serialized_agents = [
+                agent
+                for agent in agents
+                if levels[agent] == level and not parallel_capabilities.get(agent, True)
+            ]
+
+            for agent in parallel_agents:
+                groups[agent] = current_group
+
+            if parallel_agents:
+                current_group += 1
+
+            for agent in serialized_agents:
+                groups[agent] = current_group
+                current_group += 1
 
         return groups
 
@@ -124,7 +152,11 @@ class CollaborationPlanner:
                 handoffs={},
             )
 
-        groups = self._assign_parallel_groups(agents, dependency_map)
+        groups = self._assign_parallel_groups(
+            agents,
+            dependency_map,
+            parallel_capabilities,
+        )
 
         steps: list[CollaborationStep] = []
         for agent in agents:
@@ -142,29 +174,6 @@ class CollaborationPlanner:
                     parallel_group=groups[agent],
                 )
             )
-
-        # A non-parallel specialist gets an isolated execution group. All current
-        # built-in specialists support parallel execution, but the registry can
-        # disable it when a future agent needs shared state or serialization.
-        for agent in agents:
-            if parallel_capabilities.get(agent, True):
-                continue
-            group = groups[agent]
-            for index, step in enumerate(steps):
-                if step.agent == agent:
-                    steps[index] = CollaborationStep(
-                        agent=step.agent,
-                        purpose=step.purpose,
-                        depends_on=step.depends_on,
-                        parallel_group=group + 1,
-                    )
-                elif step.parallel_group == group + 1:
-                    steps[index] = CollaborationStep(
-                        agent=step.agent,
-                        purpose=step.purpose,
-                        depends_on=step.depends_on,
-                        parallel_group=group + 2,
-                    )
 
         ordered_handoffs = {
             agent: dependency_map[agent]
