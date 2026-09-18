@@ -31,9 +31,9 @@ class MultiAgent:
 
     ROUTES: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("currency", ("currency", "exchange rate", "exchange rates", "forex", "usd", "eur", "gbp")),
-        ("email", ("email", "mail", "draft an email", "professional message", "subject line")),
+        ("email", ("email", "mail", "draft an email", "professional message", "subject line", "letter")),
         ("image", ("image", "picture", "photo", "illustration", "generate an image")),
-        ("game", ("game", "gameplay", "level design", "character design", "game mechanics")),
+        ("game", ("game", "gameplay", "level design", "character design", "game mechanics", "unity", "unreal engine")),
         (
             "deep_learning",
             (
@@ -43,6 +43,9 @@ class MultiAgent:
                 "model training",
                 "cnn",
                 "transformer",
+                "transformer architecture",
+                "pytorch",
+                "tensorflow",
             ),
         ),
         (
@@ -59,9 +62,32 @@ class MultiAgent:
                 "shortest path",
                 "dynamic programming",
                 "backtracking",
+                "graph",
+                "linked list",
+                "binary tree",
+                "heap",
+                "stack",
+                "queue",
             ),
         ),
-        ("code", ("code", "program", "function", "class", "script", "algorithm")),
+        (
+            "code",
+            (
+                "code",
+                "program",
+                "programming",
+                "function",
+                "class",
+                "script",
+                "algorithm",
+                "python",
+                "java",
+                "javascript",
+                "debug",
+                "bug fix",
+                "api",
+            ),
+        ),
     )
 
     DEFAULT_AGENT_FACTORIES: dict[str, AgentFactory] = {
@@ -106,10 +132,20 @@ class MultiAgent:
             return "code"
 
         text = self._normalize(first_part.text)
+        best_agent = "code"
+        best_score = 0
+
         for agent_type, keywords in self.ROUTES:
-            if any(self._keyword_matches(text, keyword) for keyword in keywords):
-                return agent_type
-        return "code"
+            score = sum(
+                2 if " " in keyword or "-" in keyword else 1
+                for keyword in keywords
+                if self._keyword_matches(text, keyword)
+            )
+            if score > best_score:
+                best_agent = agent_type
+                best_score = score
+
+        return best_agent
 
     def _get_agent(self, agent_type: str) -> Agent:
         existing_agent = self.agents.get(agent_type)
