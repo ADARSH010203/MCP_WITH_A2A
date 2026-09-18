@@ -28,6 +28,9 @@ Multi-Agent Router
   +--> DSA Agent
 ```
 
+
+A2A defines the communication contract between the host/client and the multi-agent service. The specialist-to-specialist orchestration shown below is handled inside that service by the coordinator, not by separate network calls between every specialist.
+
 ### Request flow
 
 1. The host sends a task to the A2A JSON-RPC endpoint.
