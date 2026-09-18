@@ -1,4 +1,3 @@
-import os
 import uuid
 from typing import List, Optional
 
@@ -8,7 +7,6 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import tool
 from langchain_groq import ChatGroq
 
-os.environ["GROQ_API_KEY"] = "YOUR_GROQ_API_KEY"
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
