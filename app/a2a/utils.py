@@ -1,6 +1,4 @@
 
-from typing import List
-
 from app.a2a.models import (
     ContentTypeNotSupportedError,
     JSONRPCResponse,
@@ -9,7 +7,7 @@ from app.a2a.models import (
 
 
 def are_modalities_compatible(
-    server_output_modes: List[str], client_output_modes: List[str]
+    server_output_modes: list[str], client_output_modes: list[str]
 ):
     """Modalities are compatible if they are both non-empty
     and there is at least one common element."""
