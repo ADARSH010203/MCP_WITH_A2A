@@ -283,7 +283,7 @@ class AgentTaskManager(InMemoryTaskManager):
                 ),
             )
 
-        if request.params.pushNotification:
+        if created and request.params.pushNotification:
             verified = await self.set_push_notification_info(
                 request.params.id, request.params.pushNotification
             )
@@ -359,7 +359,7 @@ class AgentTaskManager(InMemoryTaskManager):
                     error=InvalidParamsError(message=str(exc)),
                 )
 
-            if request.params.pushNotification:
+            if created and request.params.pushNotification:
                 verified = await self.set_push_notification_info(
                     request.params.id, request.params.pushNotification
                 )
