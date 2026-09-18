@@ -25,64 +25,87 @@ from custom_types import (
 
 
 class A2AClient:
-    def __init__(self, agent_card: AgentCard = None, url: str = None):
-        if agent_card:
+    """Small async client for the A2A JSON-RPC and SSE endpoints."""
+
+    def __init__(self, agent_card: AgentCard | None = None, url: str | None = None):
+        if agent_card is not None:
             self.url = agent_card.url
         elif url:
-            self.url = url
+            self.url = url.rstrip("/")
         else:
-            raise ValueError("Must provide either agent_card or url")
+            raise ValueError("Provide either agent_card or url")
 
     async def send_task(self, payload: dict[str, Any]) -> SendTaskResponse:
         request = SendTaskRequest(params=payload)
-        return SendTaskResponse(**await self._send_request(request))
+        response = await self._send_request(request)
+        return SendTaskResponse.model_validate(response)
 
     async def send_task_streaming(
         self, payload: dict[str, Any]
     ) -> AsyncIterable[SendTaskStreamingResponse]:
         request = SendTaskStreamingRequest(params=payload)
-        with httpx.Client(timeout=None) as client:
-            with connect_sse(
-                client, "POST", self.url, json=request.model_dump()
-            ) as event_source:
-                try:
-                    for sse in event_source.iter_sse():
-                        yield SendTaskStreamingResponse(**json.loads(sse.data))
-                except json.JSONDecodeError as e:
-                    raise A2AClientJSONError(str(e)) from e
-                except httpx.RequestError as e:
-                    raise A2AClientHTTPError(400, str(e)) from e
+
+        try:
+            with httpx.Client(timeout=None) as client:
+                with connect_sse(
+                    client,
+                    "POST",
+                    self.url,
+                    json=request.model_dump(exclude_none=True),
+                ) as event_source:
+                    event_source.response.raise_for_status()
+
+                    for event in event_source.iter_sse():
+                        if not event.data:
+                            continue
+                        try:
+                            yield SendTaskStreamingResponse.model_validate_json(
+                                event.data
+                            )
+                        except (json.JSONDecodeError, ValueError) as exc:
+                            raise A2AClientJSONError(str(exc)) from exc
+        except httpx.RequestError as exc:
+            raise A2AClientHTTPError(500, str(exc)) from exc
+        except httpx.HTTPStatusError as exc:
+            raise A2AClientHTTPError(exc.response.status_code, str(exc)) from exc
 
     async def _send_request(self, request: JSONRPCRequest) -> dict[str, Any]:
-        async with httpx.AsyncClient() as client:
-            try:
-                # Image generation could take time, adding timeout
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
                 response = await client.post(
-                    self.url, json=request.model_dump(), timeout=30
+                    self.url,
+                    json=request.model_dump(exclude_none=True),
                 )
                 response.raise_for_status()
-                return response.json()
-            except httpx.HTTPStatusError as e:
-                raise A2AClientHTTPError(e.response.status_code, str(e)) from e
-            except json.JSONDecodeError as e:
-                raise A2AClientJSONError(str(e)) from e
+                try:
+                    return response.json()
+                except json.JSONDecodeError as exc:
+                    raise A2AClientJSONError(str(exc)) from exc
+        except httpx.HTTPStatusError as exc:
+            raise A2AClientHTTPError(exc.response.status_code, str(exc)) from exc
+        except httpx.RequestError as exc:
+            raise A2AClientHTTPError(500, str(exc)) from exc
 
     async def get_task(self, payload: dict[str, Any]) -> GetTaskResponse:
         request = GetTaskRequest(params=payload)
-        return GetTaskResponse(**await self._send_request(request))
+        return GetTaskResponse.model_validate(await self._send_request(request))
 
     async def cancel_task(self, payload: dict[str, Any]) -> CancelTaskResponse:
         request = CancelTaskRequest(params=payload)
-        return CancelTaskResponse(**await self._send_request(request))
+        return CancelTaskResponse.model_validate(await self._send_request(request))
 
     async def set_task_callback(
         self, payload: dict[str, Any]
     ) -> SetTaskPushNotificationResponse:
         request = SetTaskPushNotificationRequest(params=payload)
-        return SetTaskPushNotificationResponse(**await self._send_request(request))
+        return SetTaskPushNotificationResponse.model_validate(
+            await self._send_request(request)
+        )
 
     async def get_task_callback(
         self, payload: dict[str, Any]
     ) -> GetTaskPushNotificationResponse:
         request = GetTaskPushNotificationRequest(params=payload)
-        return GetTaskPushNotificationResponse(**await self._send_request(request))
+        return GetTaskPushNotificationResponse.model_validate(
+            await self._send_request(request)
+        )
