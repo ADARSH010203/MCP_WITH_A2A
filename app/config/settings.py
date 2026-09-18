@@ -50,6 +50,7 @@ class Settings:
     )
     mcp_url: str = os.getenv("MCP_URL", "http://127.0.0.1:3000/sse")
     a2a_public_url: str = os.getenv("A2A_PUBLIC_URL", "")
+    a2a_cors_origins: tuple[str, ...] = field(default_factory=tuple, init=False)
     a2a_specialist_urls: dict[str, str] = field(default_factory=dict, init=False)
     a2a_remote_connect_timeout_seconds: float = _env_float(
         "A2A_REMOTE_CONNECT_TIMEOUT_SECONDS",
@@ -187,5 +188,11 @@ def _load_specialist_urls() -> dict[str, str]:
     return result
 
 
+def _load_cors_origins() -> tuple[str, ...]:
+    raw = os.getenv("A2A_CORS_ORIGINS", "")
+    return tuple(origin.strip() for origin in raw.split(",") if origin.strip())
+
+
 settings = Settings()
 object.__setattr__(settings, "a2a_specialist_urls", _load_specialist_urls())
+object.__setattr__(settings, "a2a_cors_origins", _load_cors_origins())
