@@ -43,6 +43,13 @@ class FakeStreamingAgent:
             "is_task_complete": True,
             "require_user_input": False,
             "content": "done",
+            "agents_used": ["deep_learning", "code"],
+            "collaboration_mode": "multi-agent",
+            "critic_reviewed": True,
+            "collaboration_plan": {
+                "mode": "multi-agent",
+                "agents": ["deep_learning", "code"],
+            },
         }
 
 
@@ -164,6 +171,13 @@ def test_streaming_retry_does_not_start_second_worker():
         assert agent.stream_calls == 1
         assert events[-1].result is not None
         assert events[-1].result.status.state == TaskState.COMPLETED
+        assert events[-1].result.metadata is not None
+        assert events[-1].result.metadata["collaboration_mode"] == "multi-agent"
+        assert events[-1].result.metadata["critic_reviewed"] is True
+        assert events[-1].result.metadata["collaboration_plan"]["agents"] == [
+            "deep_learning",
+            "code",
+        ]
         assert retry_events[-1].result is not None
         assert retry_events[-1].result.status.state == TaskState.COMPLETED
 
