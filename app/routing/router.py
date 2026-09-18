@@ -205,6 +205,8 @@ class MultiAgent:
         agent_types: list[str] | None = None,
     ) -> CollaborationPlan:
         selected_agents = agent_types or self.select_agent_types(query)
+        for agent in selected_agents:
+            self.AGENT_REGISTRY.get(agent)
         parallel_capabilities = {
             agent: self.AGENT_REGISTRY.get(agent).can_parallel
             for agent in selected_agents
