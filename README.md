@@ -35,8 +35,8 @@ A2A defines the communication contract between the host/client and the multi-age
 
 1. The host sends a task to the A2A JSON-RPC endpoint.
 2. The A2A task manager validates the request and creates the task.
-3. The coordinator scores domain keywords and phrases using deterministic rules.
-4. The collaboration planner converts the selection into a structured execution plan with specialist dependencies and parallel groups.
+3. The coordinator matches the request against a validated agent capability registry using deterministic triggers and priorities.
+4. The collaboration planner converts the selection into a dependency graph and structured execution plan with parallel groups.
 5. The selected specialist agents process the request with the configured Groq model.
 6. Currency requests can call the MCP SSE tool server.
 7. The task manager returns the result or streams task updates through SSE.
@@ -98,6 +98,7 @@ MCP_WITH_A2A/
 │   │       └── currency.py
 │   ├── routing/
 │   │   ├── router.py
+│   │   ├── registry.py
 │   │   ├── planner.py
 │   │   └── tracing.py
 │   └── config/
@@ -233,7 +234,7 @@ ruff check app host frontend scripts tests
 ## Limitations
 
 - Currency rates are external daily reference rates and depend on provider availability.
-- Agent routing is keyword-based, so ambiguous requests may still be misrouted or fall back to the code agent.
+- Agent routing is deterministic and registry-driven, but ambiguous requests can still be misrouted or fall back to the code agent.
 - SQLite persistence protects task records across a single server restart, but it does not provide distributed task state across multiple server processes.
 - Live SSE subscriptions and running workers are still process-local; an active task cannot be resumed automatically after a server restart.
 - Agent conversation memory is still in-process via LangGraph's memory checkpointer.
@@ -244,6 +245,25 @@ ruff check app host frontend scripts tests
 ### Collaboration behavior
 
 The router keeps simple requests cheap by using one specialist. When a request clearly spans multiple domains—for example, “Build a Python CNN image-classification pipeline”—the coordinator selects up to three relevant specialists. The collaboration planner then records the execution mode, specialist steps, dependencies, handoffs, and rationale before any specialist runs. Lead specialists can run in parallel using separate conversation threads. Dependent work such as coding receives upstream specialist findings before execution, and a critic agent reviews the combined findings and produces the final response. The structured plan is also exposed in task metadata so clients can inspect how the collaboration was organized. If one specialist fails, the critic can still synthesize the successful findings and explicitly acknowledge the missing contribution.
+
+
+### Capability registry and dependency graph
+
+Routing metadata is centralized in `app/routing/registry.py`. Each specialist declares its capabilities, trigger phrases, routing priority, supported input/output types, parallel-execution policy, and upstream dependencies.
+
+The planner consumes those dependencies as a graph rather than relying on a single hardcoded handoff loop. For a request that needs domain guidance before implementation, the graph can produce:
+
+```text
+Deep Learning ──────┐
+                    ├──> Code ───> Critic
+Game ───────────────┤
+RL ─────────────────┘
+```
+
+The dependency graph is validated for unknown dependencies and cycles before a plan is executed. Independent specialists share a parallel execution group; dependent specialists run only after the required upstream group has produced its findings.
+
+This remains deterministic and explainable. There is no LLM-based routing decision in this phase.
+
 ### Collaboration observability
 
 Each top-level request gets a lightweight in-process trace with a unique trace ID. The trace records the planner decision, specialist start/completion status, retries, handoffs, critic execution, and final coordinator status with elapsed time. The latest trace is attached to router responses and A2A task/stream metadata, so clients can inspect the execution path without parsing log text.
