@@ -62,6 +62,15 @@ class AgentTaskManager(InMemoryTaskManager):
             )
         return await super().on_set_task_push_notification(request)
 
+    @staticmethod
+    def _is_terminal(task: Task) -> bool:
+        return task.status.state in {
+            TaskState.INPUT_REQUIRED,
+            TaskState.COMPLETED,
+            TaskState.CANCELED,
+            TaskState.FAILED,
+        }
+
     async def on_cancel_task(self, request: Any):
         task_id = request.params.id
         task = await self.get_stored_task(task_id)
