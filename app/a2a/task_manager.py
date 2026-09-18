@@ -394,7 +394,7 @@ class AgentTaskManager(InMemoryTaskManager):
                             ],
                         ),
                     )
-                    task = await self.update_store(
+                    await self.update_store(
                         request.params.id,
                         failure_status,
                         [],
