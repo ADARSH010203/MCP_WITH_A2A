@@ -1,11 +1,19 @@
 """Route user requests to the appropriate specialized agent."""
 
 import re
-from typing import AsyncIterable, Callable
+from typing import AsyncIterable
 
 from app.a2a.models import Message, Task
 from app.agents.currency import CurrencyAgent
-from app.agents.specialized import (
+from app.agents.code import CodeGeneratorAgent
+from app.agents.deep_learning import DeepLearningAgent
+from app.agents.dsa import DsaAgent
+from app.agents.email import EmailWriterAgent
+from app.agents.game import GameGeneratorAgent
+from app.agents.image import ImageGeneratorAgent
+from app.agents.reinforcement import ReinforcementLearningAgent
+
+# from app.agents.specialized import (
     CodeGeneratorAgent,
     DeepLearningAgent,
     DsaAgent,
@@ -25,7 +33,7 @@ class MultiAgent:
         ("image", ("image", "picture", "photo", "illustration", "generate an image")),
         ("game", ("game", "gameplay", "level design", "character design", "game mechanics")),
         ("deep_learning", ("deep learning", "neural network", "neural networks", "model training", "cnn", "transformer")),
-        ("rainforment", ("reinforcement learning", "reinforcement", "q-learning", "policy gradient", "game ai")),
+        ("reinforcement", ("reinforcement learning", "reinforcement", "q-learning", "policy gradient", "game ai")),
         ("dsa", ("dsa", "data structures", "binary search", "sorting", "shortest path", "dynamic programming", "backtracking")),
         ("code", ("code", "program", "function", "class", "script", "algorithm")),
     )
@@ -38,7 +46,7 @@ class MultiAgent:
             "image": ImageGeneratorAgent(),
             "game": GameGeneratorAgent(),
             "deep_learning": DeepLearningAgent(),
-            "rainforment": RainformentAgent(),
+            "rainforment": ReinforcementLearningAgent(),
             "dsa": DsaAgent(),
         }
 
