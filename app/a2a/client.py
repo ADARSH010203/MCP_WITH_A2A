@@ -4,6 +4,7 @@ from typing import Any, AsyncIterable
 import httpx
 from httpx_sse import aconnect_sse
 
+from app.config.settings import settings
 from app.a2a.models import (
     A2AClientHTTPError,
     A2AClientJSONError,
@@ -27,13 +28,24 @@ from app.a2a.models import (
 class A2AClient:
     """Small async client for the A2A JSON-RPC and SSE endpoints."""
 
-    def __init__(self, agent_card: AgentCard | None = None, url: str | None = None):
+    def __init__(
+        self,
+        agent_card: AgentCard | None = None,
+        url: str | None = None,
+        api_key: str | None = None,
+    ):
+        self.api_key = settings.a2a_api_key if api_key is None else api_key
         if agent_card is not None:
             self.url = agent_card.url
         elif url:
             self.url = url.rstrip("/")
         else:
             raise ValueError("Provide either agent_card or url")
+
+    def _headers(self) -> dict[str, str]:
+        if not self.api_key:
+            return {}
+        return {"Authorization": f"Bearer {self.api_key}"}
 
     async def send_task(self, payload: dict[str, Any]) -> SendTaskResponse:
         request = SendTaskRequest(params=payload)
@@ -53,6 +65,7 @@ class A2AClient:
                     "POST",
                     self.url,
                     json=request.model_dump(exclude_none=True),
+                    headers=self._headers(),
                 ) as event_source:
                     event_source.response.raise_for_status()
 
