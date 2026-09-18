@@ -424,6 +424,10 @@ class AgentTaskManager(InMemoryTaskManager):
         response_status = agent_response.get("status", "completed")
         metadata = {
             "agents_used": agent_response.get("agents_used", []),
+            "collaboration_mode": agent_response.get(
+                "collaboration_mode",
+                "single-agent",
+            ),
             "verified": agent_response.get("verified", False),
         }
 
