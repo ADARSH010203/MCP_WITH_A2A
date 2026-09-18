@@ -112,6 +112,20 @@ class Settings:
         30,
         minimum=0,
     )
+    a2a_memory_db_path: str = os.getenv(
+        "A2A_MEMORY_DB_PATH",
+        ".data/a2a_memory.db",
+    )
+    a2a_memory_turns: int = _env_int(
+        "A2A_MEMORY_TURNS",
+        8,
+        minimum=1,
+    )
+    a2a_memory_max_chars: int = _env_int(
+        "A2A_MEMORY_MAX_CHARS",
+        4000,
+        minimum=100,
+    )
     a2a_specialist_timeout_seconds: float = _env_float(
         "A2A_SPECIALIST_TIMEOUT_SECONDS",
         45.0,

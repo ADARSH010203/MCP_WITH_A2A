@@ -363,6 +363,14 @@ WORKING
 ```
 
 Tasks with the same ID and the same session/message are treated as retries and do not start a second agent execution. Streaming clients can reconnect to an active in-process worker or replay a terminal task's final state.
+### Persistent memory and durable task storage
+
+Agent conversation context is persisted in a bounded SQLite memory store at `A2A_MEMORY_DB_PATH`. Each specialist gets its own memory namespace, recent turns are capped by `A2A_MEMORY_TURNS`, and individual stored messages are bounded by `A2A_MEMORY_MAX_CHARS`.
+
+The in-process LangGraph checkpointer remains useful for active conversations, while SQLite memory allows a new server process to recover recent conversational context after restart. Stored context is explicitly framed as reference data rather than instructions before it is sent back to a model.
+
+The A2A task store also uses SQLite WAL mode, a busy timeout, and a process-local lock so task persistence is safer when concurrent requests update the same database.
+
 ### Deterministic evaluation and benchmarking
 
 Phase 7 adds a lightweight benchmark suite for routing and collaboration behavior. It evaluates the coordinator without calling Groq or external services, so the benchmark is safe to run in CI and can catch routing regressions early.
