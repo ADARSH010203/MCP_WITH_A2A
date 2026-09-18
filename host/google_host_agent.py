@@ -2,7 +2,7 @@ import asyncio
 import base64
 import json
 import uuid
-from typing import Callable, List
+from collections.abc import Callable
 
 from google.adk import Agent # type: ignore
 from google.adk.agents.callback_context import CallbackContext # type: ignore
@@ -130,7 +130,7 @@ class HostAgent:
 
     def __init__(
         self,
-        remote_agent_addresses: List[str],
+        remote_agent_addresses: list[str],
         task_callback: TaskUpdateCallback | None = None,
     ):
         self.task_callback = task_callback
@@ -248,7 +248,6 @@ Current agent: {current_agent["active_agent"]}
             raise ValueError(f"Agent {agent_name} not found")
         state = tool_context.state
         state["agent"] = agent_name
-        card = self.cards[agent_name]
         client = self.remote_agent_connections[agent_name]
         if not client:
             raise ValueError(f"Client not available for {agent_name}")
@@ -335,50 +334,32 @@ def convert_part(part: Part, tool_context: ToolContext):
 
 
 
-# ---------------------------------------------------------
-# Your HostAgent code (from your snippet)
-# ---------------------------------------------------------
-host_agent = HostAgent(["http://localhost:8000"])
-root_agent = host_agent.create_agent()
 
-# ---------------------------------------------------------
-# 1. Create an in-memory session service
-# ---------------------------------------------------------
-session_service = InMemorySessionService()
+async def main() -> None:
+    host_agent = HostAgent(["http://localhost:8000"])
+    root_agent = host_agent.create_agent()
 
-# ---------------------------------------------------------
-# 2. Create a session with the required fields
-# ---------------------------------------------------------
-my_session = session_service.create_session(
-    app_name="test_app", user_id="test_user", session_id="session-123"
-)
+    session_service = InMemorySessionService()
+    session = session_service.create_session(
+        app_name="test_app",
+        user_id="test_user",
+        session_id="session-123",
+    )
+    run_config = RunConfig(response_modalities=["text"])
+    context = InvocationContext(
+        session_service=session_service,
+        memory_service=None,
+        artifact_service=None,
+        session=session,
+        agent=root_agent,
+        invocation_id=str(uuid.uuid4()),
+        run_config=run_config,
+    )
 
-# ---------------------------------------------------------
-# 3. Provide a basic RunConfig with response_modalities
-# ---------------------------------------------------------
-run_config = RunConfig(response_modalities=["text"])
-
-# ---------------------------------------------------------
-# 4. Build the InvocationContext
-# ---------------------------------------------------------
-context = InvocationContext(
-    session_service=session_service,
-    memory_service=None,
-    artifact_service=None,
-    session=my_session,  # We just created
-    agent=root_agent,
-    invocation_id=str(uuid.uuid4()),
-    run_config=run_config,
-)
-
-
-# ---------------------------------------------------------
-# 5. Run your agent with run_async(...)
-# ---------------------------------------------------------
-async def main():
     async for event in root_agent.run_async(context):
         if event.content:
             print("Agent output:", event.content.text())
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
