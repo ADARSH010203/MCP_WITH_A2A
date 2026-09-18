@@ -297,9 +297,10 @@ class MultiAgent:
             return agent
 
     def _get_critic(self) -> CriticAgent:
-        if self.critic is None:
-            self.critic = self.critic_factory()
-        return self.critic
+        with self._agent_lock:
+            if self.critic is None:
+                self.critic = self.critic_factory()
+            return self.critic
 
     def _route(self, query: str) -> Agent:
         message = Message(role="user", parts=[{"type": "text", "text": query}])
@@ -430,7 +431,26 @@ class MultiAgent:
             for outcome in outcomes
             if outcome["status"] == "completed" and outcome["content"]
         ]
+        needs_input = [
+            outcome
+            for outcome in outcomes
+            if outcome["status"] == "input_required"
+        ]
         if not successful:
+            if needs_input:
+                requested = ", ".join(item["agent"] for item in needs_input)
+                return {
+                    "status": "input_required",
+                    "is_task_complete": False,
+                    "require_user_input": True,
+                    "content": (
+                        "More information is required by these specialists: "
+                        + requested
+                        + "."
+                    ),
+                    "agents_used": agent_types,
+                }
+
             return {
                 "status": "error",
                 "is_task_complete": False,
@@ -440,6 +460,13 @@ class MultiAgent:
             }
 
         synthesis = self._get_critic().synthesize(query, outcomes)
+        if needs_input and synthesis.get("status") == "completed":
+            synthesis["content"] = (
+                synthesis.get("content", "")
+                + "\n\nNote: some specialist work still requires additional input: "
+                + ", ".join(item["agent"] for item in needs_input)
+                + "."
+            )
         return {
             "status": synthesis.get("status", "error"),
             "is_task_complete": synthesis.get("status") == "completed",
