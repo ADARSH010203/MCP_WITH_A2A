@@ -119,6 +119,15 @@ class AgentTaskManager(InMemoryTaskManager):
                     status_value = item.get("status", "completed")
                     is_complete = item.get("is_task_complete", False)
                     needs_input = item.get("require_user_input", False)
+                    metadata = {
+                        "agents_used": item.get("agents_used", []),
+                        "collaboration_mode": item.get(
+                            "collaboration_mode",
+                            "single-agent",
+                        ),
+                        "critic_reviewed": item.get("critic_reviewed", False),
+                        "collaboration_plan": item.get("collaboration_plan", {}),
+                    }
                     content = (
                         str(item.get("content", "")).strip()
                         or "No response was returned."
@@ -129,6 +138,7 @@ class AgentTaskManager(InMemoryTaskManager):
                         message = Message(
                             role="agent",
                             parts=[{"type": "text", "text": content}],
+                            metadata=metadata,
                         )
                         artifact = None
                         final = True
@@ -144,7 +154,8 @@ class AgentTaskManager(InMemoryTaskManager):
                         state = TaskState.COMPLETED
                         message = None
                         artifact = Artifact(
-                            parts=[{"type": "text", "text": content}]
+                            parts=[{"type": "text", "text": content}],
+                            metadata=metadata,
                         )
                         final = True
                     else:
@@ -170,6 +181,7 @@ class AgentTaskManager(InMemoryTaskManager):
                             TaskArtifactUpdateEvent(
                                 id=task_send_params.id,
                                 artifact=artifact,
+                                metadata=metadata,
                             ),
                         )
 
@@ -179,6 +191,7 @@ class AgentTaskManager(InMemoryTaskManager):
                             id=task_send_params.id,
                             status=status,
                             final=final,
+                            metadata=metadata,
                         ),
                     )
         except Exception:
