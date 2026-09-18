@@ -89,6 +89,7 @@ class A2AClient:
                 response = await client.post(
                     self.url,
                     json=request.model_dump(exclude_none=True),
+                    headers=self._headers(),
                 )
                 response.raise_for_status()
                 try:
