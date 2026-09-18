@@ -687,7 +687,8 @@ class MultiAgent:
                 "collaboration_plan": plan.to_dict(),
             }
 
-        if not budget.reserve():
+        synthesis = self._synthesize_with_timeout(query, outcomes, budget)
+        if synthesis.get("status") in {"budget_exceeded", "timeout", "error"}:
             fallback = "\n\n".join(
                 f"{item['agent']}: {item['content']}"
                 for item in successful
@@ -697,15 +698,14 @@ class MultiAgent:
                 "is_task_complete": True,
                 "require_user_input": False,
                 "content": (
-                    "Critic call budget exhausted. Returning successful specialist findings "
-                    "without synthesis:\n\n" + fallback
+                    "Critic could not complete the final review. "
+                    "Returning successful specialist findings without synthesis:\n\n"
+                    + fallback
                 ),
                 "agents_used": agent_types,
                 "critic_reviewed": False,
                 "collaboration_plan": plan.to_dict(),
             }
-
-        synthesis = self._synthesize_with_timeout(query, outcomes, budget)
         if needs_input and synthesis.get("status") == "completed":
             synthesis["content"] = (
                 synthesis.get("content", "")
@@ -872,7 +872,14 @@ class MultiAgent:
             "collaboration_plan": plan.to_dict(),
         }
 
-        if not budget.reserve():
+        synthesis = await asyncio.to_thread(
+            self._synthesize_with_timeout,
+            query,
+            outcomes,
+            budget,
+        )
+
+        if synthesis.get("status") in {"budget_exceeded", "timeout", "error"}:
             successful = [
                 outcome
                 for outcome in outcomes
@@ -883,12 +890,15 @@ class MultiAgent:
                 for item in successful
             )
             yield {
-                "is_task_complete": True,
+                "is_task_complete": bool(successful),
                 "require_user_input": False,
-                "status": "completed",
+                "status": "completed" if successful else "error",
                 "content": (
-                    "Critic call budget exhausted. Returning successful specialist findings "
-                    "without synthesis:\n\n" + fallback
+                    "Critic could not complete the final review. "
+                    "Returning successful specialist findings without synthesis:\n\n"
+                    + fallback
+                    if successful
+                    else synthesis.get("content", "Critic failed before final synthesis.")
                 ),
                 "agents_used": agent_types,
                 "collaboration_mode": "multi-agent",
@@ -896,12 +906,6 @@ class MultiAgent:
                 "collaboration_plan": plan.to_dict(),
             }
             return
-
-        synthesis = await asyncio.to_thread(
-            self._get_critic().synthesize,
-            query,
-            outcomes,
-        )
 
         yield {
             "is_task_complete": synthesis.get("status") == "completed",
