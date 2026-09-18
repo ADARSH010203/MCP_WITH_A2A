@@ -40,6 +40,17 @@ class AgentTaskManager(InMemoryTaskManager):
         self.notification_sender_auth = notification_sender_auth
         self.streaming_tasks: dict[str, asyncio.Task[None]] = {}
 
+    async def on_set_task_push_notification(self, request: Any):
+        config = request.params.pushNotificationConfig
+        if not await self.notification_sender_auth.verify_push_notification_url(config.url):
+            return JSONRPCResponse(
+                id=request.id,
+                error=InvalidParamsError(
+                    message="Push notification URL could not be verified"
+                ),
+            )
+        return await super().on_set_task_push_notification(request)
+
     async def on_cancel_task(self, request: Any):
         task_id = request.params.id
         task = await self.get_stored_task(task_id)
