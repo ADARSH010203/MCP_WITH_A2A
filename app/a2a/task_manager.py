@@ -428,7 +428,7 @@ class AgentTaskManager(InMemoryTaskManager):
                 "collaboration_mode",
                 "single-agent",
             ),
-            "verified": agent_response.get("verified", False),
+            "critic_reviewed": agent_response.get("critic_reviewed", False),
         }
 
         if response_status == "input_required":
