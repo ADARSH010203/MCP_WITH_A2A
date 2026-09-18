@@ -150,7 +150,6 @@ DEFAULT_AGENT_REGISTRY = AgentRegistry(
             name="image",
             capabilities=("image generation", "visual design", "illustration"),
             triggers=(
-                ("image", 3),
                 ("picture", 2),
                 ("photo", 2),
                 ("illustration", 3),
