@@ -7,15 +7,25 @@ from app.config.settings import settings
 
 
 class A2ACardResolver:
-    def __init__(self, base_url, agent_card_path="/.well-known/agent.json"):
+    def __init__(
+        self,
+        base_url: str,
+        agent_card_path: str = "/.well-known/agent.json",
+        api_key: str | None = None,
+    ):
         self.base_url = base_url.rstrip("/")
         self.agent_card_path = agent_card_path.lstrip("/")
+        self.api_key = (
+            settings.a2a_api_key
+            if api_key is None
+            else api_key
+        )
 
     def get_agent_card(self) -> AgentCard:
         with httpx.Client() as client:
             headers = (
-                {"Authorization": f"Bearer {settings.a2a_api_key}"}
-                if settings.a2a_api_key
+                {"Authorization": f"Bearer {self.api_key}"}
+                if self.api_key
                 else {}
             )
             response = client.get(
