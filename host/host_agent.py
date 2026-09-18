@@ -120,11 +120,31 @@ class HostAgent:
             # Check final state
             state = result.get("status", {}).get("state", "unknown")
             if state == TaskState.COMPLETED:
-                return f"Task {task_id} completed with message: {result}"
+                artifacts = result.get("artifacts") or []
+                metadata = (
+                    artifacts[0].get("metadata", {})
+                    if artifacts and isinstance(artifacts[0], dict)
+                    else {}
+                )
+                agents_used = metadata.get("agents_used", [])
+                mode = metadata.get("collaboration_mode", "single-agent")
+                verified = metadata.get("verified", False)
+
+                if mode == "multi-agent":
+                    agents_text = ", ".join(agents_used) or "multiple specialists"
+                    verification = "completed" if verified else "not completed"
+                    return (
+                        f"Task {task_id} completed using {agents_text}. "
+                        f"Critic verification: {verification}."
+                    )
+                return (
+                    f"Task {task_id} completed by "
+                    f"{agents_used[0] if agents_used else 'the agent'}."
+                )
             elif state == TaskState.INPUT_REQUIRED:
-                return f"Task {task_id} needs more input: {result}"
+                return f"Task {task_id} needs more input."
             else:
-                return f"Task {task_id} ended with state={state}, result={result}"
+                return f"Task {task_id} ended with state={state}."
         except Exception as exc:
             return f"Remote agent call failed: {exc}"
 
