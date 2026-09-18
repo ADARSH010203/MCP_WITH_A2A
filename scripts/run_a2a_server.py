@@ -4,8 +4,8 @@ import os
 import click
 from dotenv import load_dotenv
 
-from agent import CurrencyAgent
-from specialized_agents import EmailWriterAgent, CodeGeneratorAgent, ImageGeneratorAgent, GameGeneratorAgent, DeepLearningAgent,RainformentAgent, DsaAgent
+from app.agents.currency import CurrencyAgent
+from app.agents.specialized import EmailWriterAgent, CodeGeneratorAgent, ImageGeneratorAgent, GameGeneratorAgent, DeepLearningAgent,RainformentAgent, DsaAgent
 from app.a2a.models import AgentCapabilities, AgentCard, AgentSkill, MissingAPIKeyError
 from app.a2a.push_notification_auth import PushNotificationSenderAuth
 from app.a2a.server import A2AServer
