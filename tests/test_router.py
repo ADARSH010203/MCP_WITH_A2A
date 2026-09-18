@@ -179,3 +179,24 @@ def test_collaboration_survives_one_specialist_failure():
     outcomes = {item["agent"]: item["status"] for item in critic.calls[0][1]}
     assert outcomes["deep_learning"] == "completed"
     assert outcomes["code"] == "error"
+
+
+
+def test_three_agent_pipeline_handoffs_domain_findings_to_code():
+    agents = fake_agents()
+    critic = FakeCritic()
+    router = MultiAgent(agents=agents, critic=critic)
+
+    result = router.invoke(
+        "Design a game using Q-learning and implement it in Python",
+        "session-789",
+    )
+
+    assert result["status"] == "completed"
+    assert result["collaboration_mode"] == "multi-agent"
+
+    code_query = agents["code"].calls[0][0]
+    assert "reinforcement" in code_query
+    assert "game" in code_query
+    assert "reinforcement result" in code_query
+    assert "game result" in code_query
