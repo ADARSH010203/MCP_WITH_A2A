@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Annotated, Any, List, Literal, Optional, Union
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 from pydantic import (
@@ -59,12 +59,12 @@ class DataPart(BaseModel):
     metadata: dict[str, Any] | None = None
 
 
-Part = Annotated[Union[TextPart, FilePart, DataPart], Field(discriminator="type")]
+Part = Annotated[TextPart | FilePart | DataPart, Field(discriminator="type")]
 
 
 class Message(BaseModel):
     role: Literal["user", "agent"]
-    parts: List[Part]
+    parts: list[Part]
     metadata: dict[str, Any] | None = None
 
 
@@ -81,7 +81,7 @@ class TaskStatus(BaseModel):
 class Artifact(BaseModel):
     name: str | None = None
     description: str | None = None
-    parts: List[Part]
+    parts: list[Part]
     metadata: dict[str, Any] | None = None
     index: int = 0
     append: bool | None = None
@@ -92,8 +92,8 @@ class Task(BaseModel):
     id: str
     sessionId: str | None = None
     status: TaskStatus
-    artifacts: List[Artifact] | None = None
-    history: List[Message] | None = None
+    artifacts: list[Artifact] | None = None
+    history: list[Message] | None = None
     metadata: dict[str, Any] | None = None
 
 
@@ -113,7 +113,7 @@ class TaskArtifactUpdateEvent(BaseModel):
 class AuthenticationInfo(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    schemes: List[str]
+    schemes: list[str]
     credentials: str | None = None
 
 
@@ -136,7 +136,7 @@ class TaskSendParams(BaseModel):
     id: str
     sessionId: str = Field(default_factory=lambda: uuid4().hex)
     message: Message
-    acceptedOutputModes: Optional[List[str]] = None
+    acceptedOutputModes: Optional[list[str]] = None
     pushNotification: PushNotificationConfig | None = None
     historyLength: int | None = None
     metadata: dict[str, Any] | None = None
@@ -232,15 +232,13 @@ class TaskResubscriptionRequest(JSONRPCRequest):
 
 A2ARequest = TypeAdapter(
     Annotated[
-        Union[
-            SendTaskRequest,
-            GetTaskRequest,
-            CancelTaskRequest,
-            SetTaskPushNotificationRequest,
-            GetTaskPushNotificationRequest,
-            TaskResubscriptionRequest,
-            SendTaskStreamingRequest,
-        ],
+        SendTaskRequest
+        | GetTaskRequest
+        | CancelTaskRequest
+        | SetTaskPushNotificationRequest
+        | GetTaskPushNotificationRequest
+        | TaskResubscriptionRequest
+        | SendTaskStreamingRequest,
         Field(discriminator="method"),
     ]
 )
@@ -320,7 +318,7 @@ class AgentCapabilities(BaseModel):
 
 
 class AgentAuthentication(BaseModel):
-    schemes: List[str]
+    schemes: list[str]
     credentials: str | None = None
 
 
@@ -328,10 +326,10 @@ class AgentSkill(BaseModel):
     id: str
     name: str
     description: str | None = None
-    tags: List[str] | None = None
-    examples: List[str] | None = None
-    inputModes: List[str] | None = None
-    outputModes: List[str] | None = None
+    tags: list[str] | None = None
+    examples: list[str] | None = None
+    inputModes: list[str] | None = None
+    outputModes: list[str] | None = None
 
 
 class AgentCard(BaseModel):
@@ -343,9 +341,9 @@ class AgentCard(BaseModel):
     documentationUrl: str | None = None
     capabilities: AgentCapabilities
     authentication: AgentAuthentication | None = None
-    defaultInputModes: List[str] = Field(default_factory=lambda: ["text"])
-    defaultOutputModes: List[str] = Field(default_factory=lambda: ["text"])
-    skills: List[AgentSkill]
+    defaultInputModes: list[str] = Field(default_factory=lambda: ["text"])
+    defaultOutputModes: list[str] = Field(default_factory=lambda: ["text"])
+    skills: list[AgentSkill]
 
 
 class A2AClientError(Exception):
