@@ -159,6 +159,9 @@ A2A_MAX_COLLABORATIVE_AGENTS=3
 A2A_MAX_CONCURRENT_TASKS=8
 A2A_RATE_LIMIT_PER_MINUTE=60
 A2A_MAX_INPUT_CHARS=20000
+A2A_SPECIALIST_TIMEOUT_SECONDS=45
+A2A_SPECIALIST_MAX_RETRIES=1
+A2A_MAX_AGENT_CALLS_PER_TASK=6
 ```
 
 Never commit a real API key.
@@ -220,6 +223,9 @@ ruff check app host frontend scripts tests
 - Duplicate task IDs are idempotent; reusing an ID for a different session or message is rejected.
 - Streaming tasks can be canceled while their worker is active.
 - Currency rates come from a daily reference-rate provider; they are not suitable for live trading or guaranteed settlement prices.
+- Specialist calls use a configurable timeout, and transient invocation errors can be retried once by default.
+- Each top-level task has a shared agent-call budget that includes specialist retries and the final critic call.
+- A timed-out call is isolated from the coordinator; Python cannot forcibly stop a running thread, so the underlying provider call may finish later in the background.
 
 ## Limitations
 
@@ -260,3 +266,5 @@ Tasks with the same ID and the same session/message are treated as retries and d
 ### Multi-agent cost control
 
 The collaboration coordinator limits a request to a small number of specialists (3 by default). For code-oriented cross-domain tasks, domain specialists run first and their findings are handed to the code specialist before critic synthesis. This keeps the workflow useful without turning every request into an uncontrolled LLM fan-out.
+
+Each top-level request also has a shared model-call budget (6 by default). Specialist failures may be retried once, while timeouts are not retried because the original thread may still be running. If the critic cannot run because the budget is exhausted or the critic times out, successful specialist findings are returned without synthesis and critic_reviewed remains false.
