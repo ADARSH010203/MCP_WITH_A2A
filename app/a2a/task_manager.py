@@ -20,7 +20,6 @@ from app.a2a.models import (
     SendTaskStreamingResponse,
     Task,
     TaskArtifactUpdateEvent,
-    TaskIdParams,
     TaskSendParams,
     TaskState,
     TaskStatus,
@@ -43,26 +42,31 @@ class AgentTaskManager(InMemoryTaskManager):
 
         try:
             async for item in self.agent.stream(query, task_send_params.sessionId):
-                is_complete = item["is_task_complete"]
-                needs_input = item["require_user_input"]
-                content = item["content"]
-                parts = [{"type": "text", "text": content}]
+                status_value = item.get("status", "completed")
+                is_complete = item.get("is_task_complete", False)
+                needs_input = item.get("require_user_input", False)
+                content = str(item.get("content", "")).strip() or "No response was returned."
 
-                if not is_complete and not needs_input:
-                    state = TaskState.WORKING
-                    message = Message(role="agent", parts=parts)
+                if status_value == "error":
+                    state = TaskState.FAILED
+                    message = Message(role="agent", parts=[{"type": "text", "text": content}])
                     artifact = None
-                    final = False
+                    final = True
                 elif needs_input:
                     state = TaskState.INPUT_REQUIRED
-                    message = Message(role="agent", parts=parts)
+                    message = Message(role="agent", parts=[{"type": "text", "text": content}])
                     artifact = None
                     final = True
-                else:
+                elif is_complete:
                     state = TaskState.COMPLETED
                     message = None
-                    artifact = Artifact(parts=parts)
+                    artifact = Artifact(parts=[{"type": "text", "text": content}])
                     final = True
+                else:
+                    state = TaskState.WORKING
+                    message = Message(role="agent", parts=[{"type": "text", "text": content}])
+                    artifact = None
+                    final = False
 
                 status = TaskStatus(state=state, message=message)
                 task = await self.update_store(
@@ -87,13 +91,36 @@ class AgentTaskManager(InMemoryTaskManager):
                     ),
                 )
         except Exception:
-            logging.getLogger(__name__).exception(
-                "Streaming agent failed for task %s",
-                task_send_params.id,
+            logger = logging.getLogger(__name__)
+            logger.exception("Streaming agent failed for task %s", task_send_params.id)
+            failure_status = TaskStatus(
+                state=TaskState.FAILED,
+                message=Message(
+                    role="agent",
+                    parts=[
+                        {
+                            "type": "text",
+                            "text": "An error occurred while processing the task.",
+                        }
+                    ],
+                ),
             )
+            try:
+                task = await self.update_store(task_send_params.id, failure_status, [])
+                await self.send_task_notification(task)
+            except Exception:
+                logger.exception(
+                    "Failed to store streaming failure for task %s",
+                    task_send_params.id,
+                )
+
             await self.enqueue_events_for_sse(
                 task_send_params.id,
-                InternalError(message="An error occurred while processing the task."),
+                TaskStatusUpdateEvent(
+                    id=task_send_params.id,
+                    status=failure_status,
+                    final=True,
+                ),
             )
 
     def _validate_request(
@@ -143,10 +170,21 @@ class AgentTaskManager(InMemoryTaskManager):
             logging.getLogger(__name__).exception(
                 "Agent invocation failed for task %s", request.params.id
             )
-            return SendTaskResponse(
-                id=request.id,
-                error=InternalError(message="An error occurred while processing the task."),
+            failure_status = TaskStatus(
+                state=TaskState.FAILED,
+                message=Message(
+                    role="agent",
+                    parts=[
+                        {
+                            "type": "text",
+                            "text": "An error occurred while processing the task.",
+                        }
+                    ],
+                ),
             )
+            task = await self.update_store(request.params.id, failure_status, [])
+            await self.send_task_notification(task)
+            return SendTaskResponse(id=request.id, result=task)
 
         return await self._process_agent_response(request, agent_response)
 
@@ -183,7 +221,7 @@ class AgentTaskManager(InMemoryTaskManager):
                 error=InternalError(message="An error occurred while streaming the response"),
             )
 
-    async def _process_agent_response(
+    def _process_agent_response(
         self, request: SendTaskRequest, agent_response: dict[str, Any]
     ) -> SendTaskResponse:
         content = str(agent_response.get("content", "")).strip()
@@ -191,9 +229,17 @@ class AgentTaskManager(InMemoryTaskManager):
             content = "The agent returned an empty response."
 
         parts = [{"type": "text", "text": content}]
-        if agent_response.get("require_user_input", False):
+        response_status = agent_response.get("status", "completed")
+
+        if response_status == "input_required":
             status = TaskStatus(
                 state=TaskState.INPUT_REQUIRED,
+                message=Message(role="agent", parts=parts),
+            )
+            artifacts = None
+        elif response_status == "error":
+            status = TaskStatus(
+                state=TaskState.FAILED,
                 message=Message(role="agent", parts=parts),
             )
             artifacts = None
