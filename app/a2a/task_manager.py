@@ -133,7 +133,7 @@ class AgentTaskManager(InMemoryTaskManager):
                         or "No response was returned."
                     )
 
-                    if status_value == "error":
+                    if status_value in {"error", "timeout", "budget_exceeded"}:
                         state = TaskState.FAILED
                         message = Message(
                             role="agent",
@@ -451,7 +451,7 @@ class AgentTaskManager(InMemoryTaskManager):
                 message=Message(role="agent", parts=parts, metadata=metadata),
             )
             artifacts = None
-        elif response_status == "error":
+        elif response_status in {"error", "timeout", "budget_exceeded"}:
             status = TaskStatus(
                 state=TaskState.FAILED,
                 message=Message(role="agent", parts=parts, metadata=metadata),
