@@ -1,7 +1,7 @@
 """Application configuration loaded from environment variables."""
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from dotenv import load_dotenv
 
@@ -50,7 +50,7 @@ class Settings:
     )
     mcp_url: str = os.getenv("MCP_URL", "http://127.0.0.1:3000/sse")
     a2a_public_url: str = os.getenv("A2A_PUBLIC_URL", "")
-    a2a_specialist_urls: dict[str, str] = None  # populated after class definition
+    a2a_specialist_urls: dict[str, str] = field(default_factory=dict, init=False)
     currency_api_url: str = os.getenv(
         "CURRENCY_API_URL",
         "https://api.frankfurter.dev/v2",
