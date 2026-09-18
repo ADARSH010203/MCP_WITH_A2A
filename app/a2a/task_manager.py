@@ -429,6 +429,7 @@ class AgentTaskManager(InMemoryTaskManager):
                 "single-agent",
             ),
             "critic_reviewed": agent_response.get("critic_reviewed", False),
+            "collaboration_plan": agent_response.get("collaboration_plan", {}),
         }
 
         if response_status == "input_required":
