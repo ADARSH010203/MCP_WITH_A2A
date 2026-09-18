@@ -201,6 +201,8 @@ For example, start a standalone code specialist:
 python -m scripts.run_specialist_a2a_server --agent code --port 8101
 ```
 
+Each standalone specialist gets its own SQLite task database by default, so multiple specialists do not share task records.
+
 Start a second specialist in another process:
 
 ```bash
@@ -260,7 +262,7 @@ streamlit run frontend/streamlit_app.py
 
 ## Run Tests
 
-The included tests cover routing, multi-agent handoffs, task lifecycle behavior, push-notification security, and MCP currency-tool input validation. Unit tests use fakes instead of live Groq calls.
+The included tests cover routing, capability registration, multi-agent handoffs, task lifecycle behavior, tracing, remote specialist configuration, push-notification security, and MCP currency-tool input validation. Unit tests use fakes instead of live Groq calls.
 
 ```bash
 pytest -q
