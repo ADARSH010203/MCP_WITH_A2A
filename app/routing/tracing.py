@@ -1,9 +1,9 @@
 """Structured execution tracing for multi-agent collaboration."""
 
+import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from threading import Lock
-import time
 from typing import Any
 from uuid import uuid4
 
