@@ -1,5 +1,6 @@
 import json
-from typing import Any, AsyncIterable
+from collections.abc import AsyncIterable
+from typing import Any
 
 import httpx
 from httpx_sse import aconnect_sse
