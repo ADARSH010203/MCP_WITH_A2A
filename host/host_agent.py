@@ -60,7 +60,8 @@ class RemoteAgentClient:
     def fetch_agent_card(self) -> AgentCard:
         """GET /.well-known/agent.json to retrieve the remote agent's card."""
         url = f"{self.base_url}/.well-known/agent.json"
-        resp = requests.get(url, timeout=10)
+        headers = {"Authorization": f"Bearer {settings.a2a_api_key}"} if settings.a2a_api_key else {}
+        resp = requests.get(url, headers=headers, timeout=10)
         resp.raise_for_status()
         data = resp.json()
 
@@ -92,7 +93,8 @@ class RemoteAgentClient:
                 },
             },
         }
-        r = requests.post(self.base_url, json=payload, timeout=30)
+        headers = {"Authorization": f"Bearer {settings.a2a_api_key}"} if settings.a2a_api_key else {}
+        r = requests.post(self.base_url, json=payload, headers=headers, timeout=30)
         r.raise_for_status()
         resp = r.json()
         if "error" in resp and resp["error"] is not None:
