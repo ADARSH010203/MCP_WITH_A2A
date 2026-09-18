@@ -1,7 +1,6 @@
 """CLI entry point for the A2A multi-agent server."""
 
 import logging
-import os
 
 import click
 from dotenv import load_dotenv
