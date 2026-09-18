@@ -38,6 +38,54 @@ class AgentTaskManager(InMemoryTaskManager):
         self.streaming_tasks: dict[str, asyncio.Task[None]] = {}
 
 
+    async def on_cancel_task(self, request: Any):
+        task_id = request.params.id
+        task = await self.get_stored_task(task_id)
+
+        if task is None:
+            from app.a2a.models import CancelTaskResponse, TaskNotFoundError
+
+            return CancelTaskResponse(id=request.id, error=TaskNotFoundError())
+
+        if self._is_terminal(task):
+            from app.a2a.models import CancelTaskResponse, TaskNotCancelableError
+
+            return CancelTaskResponse(id=request.id, error=TaskNotCancelableError())
+
+        running_task = self.streaming_tasks.get(task_id)
+        if running_task is None:
+            from app.a2a.models import CancelTaskResponse, TaskNotCancelableError
+
+            return CancelTaskResponse(id=request.id, error=TaskNotCancelableError())
+
+        running_task.cancel()
+        canceled_status = TaskStatus(
+            state=TaskState.CANCELED,
+            message=Message(
+                role="agent",
+                parts=[
+                    {
+                        "type": "text",
+                        "text": "The task was canceled by the client.",
+                    }
+                ],
+            ),
+        )
+        task = await self.update_store(task_id, canceled_status, [])
+        await self.send_task_notification(task)
+        await self.enqueue_events_for_sse(
+            task_id,
+            TaskStatusUpdateEvent(
+                id=task_id,
+                status=canceled_status,
+                final=True,
+            ),
+        )
+
+        from app.a2a.models import CancelTaskResponse
+
+        return CancelTaskResponse(id=request.id, result=task)
+
     async def _run_streaming_agent(self, request: SendTaskStreamingRequest) -> None:
         task_send_params = request.params
         query = self._get_user_query(task_send_params)
@@ -216,7 +264,14 @@ class AgentTaskManager(InMemoryTaskManager):
             return error
 
         try:
-            existing_task, created = await self.get_or_create_task(request.params)
+            try:
+                existing_task, created = await self.get_or_create_task(request.params)
+            except ValueError as exc:
+                return JSONRPCResponse(
+                    id=request.id,
+                    error=InvalidParamsError(message=str(exc)),
+                )
+
             if request.params.pushNotification:
                 verified = await self.set_push_notification_info(
                     request.params.id, request.params.pushNotification
