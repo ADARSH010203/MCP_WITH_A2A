@@ -911,21 +911,6 @@ class MultiAgent:
             }
         )
 
-        for group in specialist_groups:
-            group_steps = [
-                step
-                for step in plan.steps
-                if step.parallel_group == group and step.agent != "critic"
-            ]
-            outcomes: list[dict[str, Any]] = getattr(
-                locals().get("_outcomes_holder", None),
-                "value",
-                [],
-            )
-            # Keep one shared outcome list across all dependency groups.
-            if not hasattr(self, "_stream_outcomes"):
-                pass
-
         stream_outcomes: list[dict[str, Any]] = []
         for group in specialist_groups:
             group_steps = [
@@ -1040,7 +1025,7 @@ class MultiAgent:
         synthesis = await asyncio.to_thread(
             self._synthesize_with_timeout,
             query,
-            outcomes,
+            stream_outcomes,
             budget,
             trace,
         )
@@ -1048,7 +1033,7 @@ class MultiAgent:
         if synthesis.get("status") in {"budget_exceeded", "timeout", "error"}:
             successful = [
                 outcome
-                for outcome in outcomes
+                for outcome in stream_outcomes
                 if outcome.get("status") == "completed" and outcome.get("content")
             ]
             fallback = "\n\n".join(
