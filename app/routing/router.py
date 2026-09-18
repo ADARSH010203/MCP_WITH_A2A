@@ -104,6 +104,7 @@ class MultiAgent:
         critic: CriticAgent | None = None,
         critic_factory: CriticFactory = CriticAgent,
         planner: CollaborationPlanner | None = None,
+        remote_specialist_urls: dict[str, str] | None = None,
     ) -> None:
         self.agents = agents if agents is not None else {}
         self.agent_factories = (
@@ -115,6 +116,18 @@ class MultiAgent:
         self.critic_factory = critic_factory
         self.planner = planner or CollaborationPlanner()
         self.max_collaborative_agents = max(1, settings.a2a_max_collaborative_agents)
+        self.remote_specialist_urls = dict(
+            settings.a2a_specialist_urls
+            if remote_specialist_urls is None
+            else remote_specialist_urls
+        )
+        unknown_remote_agents = (
+            set(self.remote_specialist_urls)
+            - set(self.AGENT_REGISTRY.names())
+        )
+        if unknown_remote_agents:
+            names = ", ".join(sorted(unknown_remote_agents))
+            raise ValueError(f"Unsupported remote specialist agents: {names}")
         self.specialist_timeout_seconds = settings.a2a_specialist_timeout_seconds
         self.specialist_max_retries = settings.a2a_specialist_max_retries
         self.max_agent_calls_per_task = settings.a2a_max_agent_calls_per_task
@@ -218,7 +231,7 @@ class MultiAgent:
             if existing_agent is not None:
                 return existing_agent
 
-            remote_url = settings.a2a_specialist_urls.get(agent_type)
+            remote_url = self.remote_specialist_urls.get(agent_type)
             if remote_url:
                 agent = RemoteA2ASpecialist(
                     agent_type=agent_type,
