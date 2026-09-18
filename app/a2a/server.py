@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from sse_starlette.sse import EventSourceResponse
 
-from app.a2a.task_manager import TaskManager
+from app.a2a.base_task_manager import TaskManager
 from app.a2a.models import (
     A2ARequest,
     AgentCard,
