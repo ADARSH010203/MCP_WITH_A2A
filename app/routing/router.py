@@ -358,7 +358,10 @@ class MultiAgent:
                 "attempts": 0,
             }
 
-        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="agent-call")
+        executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="agent-call",
+        )
         future = executor.submit(
             self._get_agent(agent_type).invoke,
             query,
@@ -386,14 +389,52 @@ class MultiAgent:
                 "content": f"Specialist failed: {exc}",
                 "attempts": 1,
             }
-        else:
-            executor.shutdown(wait=False, cancel_futures=True)
+
+        executor.shutdown(wait=False, cancel_futures=True)
+        if not isinstance(result, dict):
             return {
                 "agent": agent_type,
-                "status": result.get("status", "error"),
-                "content": str(result.get("content", "")).strip(),
+                "status": "error",
+                "content": "Specialist returned an invalid response.",
                 "attempts": 1,
             }
+
+        response = dict(result)
+        response.setdefault("agent", agent_type)
+        response.setdefault("status", "error")
+        response["content"] = str(response.get("content", "")).strip()
+        response["attempts"] = 1
+        return response
+
+    def _invoke_with_retry(
+        self,
+        agent_type: str,
+        prompt: str,
+        session_id: str,
+        budget: CallBudget,
+    ) -> dict[str, Any]:
+        for attempt in range(self.specialist_max_retries + 1):
+            outcome = self._invoke_with_timeout(
+                agent_type,
+                prompt,
+                f"{session_id}:{agent_type}"
+                if attempt == 0
+                else f"{session_id}:{agent_type}:retry-{attempt}",
+                budget,
+            )
+            outcome["attempts"] = attempt + 1
+
+            if outcome["status"] != "error":
+                return outcome
+            if attempt >= self.specialist_max_retries:
+                return outcome
+
+        return {
+            "agent": agent_type,
+            "status": "error",
+            "content": "Specialist failed after retries.",
+            "attempts": self.specialist_max_retries + 1,
+        }
 
     async def _stream_agent_with_timeout(
         self,
@@ -477,29 +518,12 @@ class MultiAgent:
     ) -> dict[str, Any]:
         active_budget = budget or CallBudget(self.max_agent_calls_per_task)
         prompt = self._build_subtask(query, agent_type, upstream_findings)
-
-        for attempt in range(self.specialist_max_retries + 1):
-            outcome = self._invoke_with_timeout(
-                agent_type,
-                prompt,
-                f"{session_id}:{agent_type}"
-                if attempt == 0
-                else f"{session_id}:{agent_type}:retry-{attempt}",
-                active_budget,
-            )
-            outcome["attempts"] = attempt + 1
-
-            if outcome["status"] != "error":
-                return outcome
-            if attempt >= self.specialist_max_retries:
-                return outcome
-
-        return {
-            "agent": agent_type,
-            "status": "error",
-            "content": "Specialist failed after retries.",
-            "attempts": self.specialist_max_retries + 1,
-        }
+        return self._invoke_with_retry(
+            agent_type,
+            prompt,
+            session_id,
+            active_budget,
+        )
 
     def _run_parallel_specialists(
         self,
@@ -659,10 +683,16 @@ class MultiAgent:
     async def stream(self, query: str, session_id: str) -> AsyncIterable[dict[str, Any]]:
         plan = self.build_collaboration_plan(query)
         agent_types = list(plan.agents)
+        budget = CallBudget(self.max_agent_calls_per_task)
 
         if plan.mode == "single-agent":
             agent_type = plan.agents[0]
-            async for response in self._get_agent(agent_type).stream(query, session_id):
+            async for response in self._stream_agent_with_timeout(
+                agent_type,
+                query,
+                session_id,
+                budget,
+            ):
                 response.setdefault("agents_used", [agent_type])
                 response.setdefault("collaboration_mode", "single-agent")
                 response.setdefault("critic_reviewed", False)
@@ -698,6 +728,8 @@ class MultiAgent:
                     agent_type,
                     query,
                     session_id,
+                    None,
+                    budget,
                 )
             )
             for agent_type in lead_types
@@ -742,6 +774,7 @@ class MultiAgent:
                 query,
                 session_id,
                 upstream,
+                budget,
             )
             outcomes.append(outcome)
             yield {
@@ -768,6 +801,31 @@ class MultiAgent:
             "collaboration_mode": "multi-agent",
             "collaboration_plan": plan.to_dict(),
         }
+
+        if not budget.reserve():
+            successful = [
+                outcome
+                for outcome in outcomes
+                if outcome.get("status") == "completed" and outcome.get("content")
+            ]
+            fallback = "\n\n".join(
+                f"{item['agent']}: {item['content']}"
+                for item in successful
+            )
+            yield {
+                "is_task_complete": True,
+                "require_user_input": False,
+                "status": "completed",
+                "content": (
+                    "Critic call budget exhausted. Returning successful specialist findings "
+                    "without synthesis:\n\n" + fallback
+                ),
+                "agents_used": agent_types,
+                "collaboration_mode": "multi-agent",
+                "critic_reviewed": False,
+                "collaboration_plan": plan.to_dict(),
+            }
+            return
 
         synthesis = await asyncio.to_thread(
             self._get_critic().synthesize,
