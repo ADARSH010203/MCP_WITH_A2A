@@ -8,6 +8,8 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel
 
+from app.config.settings import settings
+
 memory = MemorySaver()
 
 
@@ -19,7 +21,7 @@ def _fetch_mcp_tools_sync() -> list:
     servers_config = {
         "currency_server": {
             "transport": "sse",
-            "url": "http://127.0.0.1:3000/sse",
+            "url": settings.mcp_url,
         }
     }
 
@@ -54,7 +56,7 @@ class CurrencyAgent:
         # Instead of a local @tool, fetch remote tools from MCP
         self.tools = _fetch_mcp_tools_sync()
 
-        self.model = ChatGroq(model="meta-llama/llama-4-scout-17b-16e-instruct", max_tokens=2048)
+        self.model = ChatGroq(model=settings.groq_model, max_tokens=2048)
         self.graph = create_react_agent(
             self.model,
             tools=self.tools,
