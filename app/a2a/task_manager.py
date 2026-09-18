@@ -165,7 +165,11 @@ class AgentTaskManager(InMemoryTaskManager):
 
         try:
             query = self._get_user_query(request.params)
-            agent_response = self.agent.invoke(query, request.params.sessionId)
+            agent_response = await asyncio.to_thread(
+                self.agent.invoke,
+                query,
+                request.params.sessionId,
+            )
         except Exception:
             logging.getLogger(__name__).exception(
                 "Agent invocation failed for task %s", request.params.id
