@@ -18,6 +18,7 @@ from app.agents.game import GameGeneratorAgent
 from app.agents.image import ImageGeneratorAgent
 from app.agents.reinforcement import ReinforcementLearningAgent
 from app.config.settings import settings
+from app.routing.planner import CollaborationPlan, CollaborationPlanner
 
 
 class Agent(Protocol):
@@ -188,6 +189,7 @@ class MultiAgent:
         agent_factories: dict[str, AgentFactory] | None = None,
         critic: CriticAgent | None = None,
         critic_factory: CriticFactory = CriticAgent,
+        planner: CollaborationPlanner | None = None,
     ) -> None:
         self.agents = agents if agents is not None else {}
         self.agent_factories = (
@@ -197,6 +199,7 @@ class MultiAgent:
         )
         self.critic = critic
         self.critic_factory = critic_factory
+        self.planner = planner or CollaborationPlanner()
         self.max_collaborative_agents = max(1, settings.a2a_max_collaborative_agents)
         self._agent_lock = threading.Lock()
 
@@ -283,6 +286,19 @@ class MultiAgent:
             return selected
 
         return selected[:1]
+
+    def build_collaboration_plan(
+        self,
+        query: str,
+        agent_types: list[str] | None = None,
+    ) -> CollaborationPlan:
+        selected_agents = agent_types or self.select_agent_types(query)
+        return self.planner.build(
+            query=query,
+            agent_types=selected_agents,
+            task_focus=self.TASK_FOCUS,
+            handoff_targets=self.HANDOFF_TARGETS,
+        )
 
     def _get_agent(self, agent_type: str) -> Agent:
         with self._agent_lock:
@@ -396,16 +412,15 @@ class MultiAgent:
         self,
         query: str,
         session_id: str,
-        agent_types: list[str],
+        plan: CollaborationPlan,
     ) -> dict[str, Any]:
-        handoff_targets = {
-            target
-            for target, upstream_types in self.HANDOFF_TARGETS.items()
-            if target in agent_types and any(
-                upstream in agent_types for upstream in upstream_types
-            )
-        }
-        lead_types = [agent_type for agent_type in agent_types if agent_type not in handoff_targets]
+        agent_types = list(plan.agents)
+        handoff_targets = plan.handoffs
+        lead_types = [
+            step.agent
+            for step in plan.steps
+            if step.parallel_group == 1 and step.agent != "critic"
+        ]
 
         outcomes = self._run_parallel_specialists(
             lead_types,
@@ -417,7 +432,7 @@ class MultiAgent:
             upstream = [
                 outcome
                 for outcome in outcomes
-                if outcome["agent"] in self.HANDOFF_TARGETS[target]
+                if outcome["agent"] in handoff_targets[target]
             ]
             outcomes.append(
                 self._run_specialist(
@@ -459,6 +474,7 @@ class MultiAgent:
                 "require_user_input": False,
                 "content": "All selected specialist agents failed to produce a result.",
                 "agents_used": agent_types,
+                "collaboration_plan": plan.to_dict(),
             }
 
         synthesis = self._get_critic().synthesize(query, outcomes)
@@ -476,30 +492,36 @@ class MultiAgent:
             "content": synthesis.get("content", ""),
             "agents_used": agent_types,
             "critic_reviewed": synthesis.get("critic_reviewed", False),
+            "collaboration_plan": plan.to_dict(),
         }
 
     def invoke(self, query: str, session_id: str) -> dict[str, Any]:
-        agent_types = self.select_agent_types(query)
+        plan = self.build_collaboration_plan(query)
 
-        if len(agent_types) == 1:
-            result = self._route(query).invoke(query, session_id)
-            result.setdefault("agents_used", [agent_types[0]])
+        if plan.mode == "single-agent":
+            agent_type = plan.agents[0]
+            result = self._get_agent(agent_type).invoke(query, session_id)
+            result.setdefault("agents_used", [agent_type])
             result.setdefault("collaboration_mode", "single-agent")
             result.setdefault("critic_reviewed", False)
+            result.setdefault("collaboration_plan", plan.to_dict())
             return result
 
-        result = self._run_collaboration(query, session_id, agent_types)
+        result = self._run_collaboration(query, session_id, plan)
         result.setdefault("collaboration_mode", "multi-agent")
         return result
 
     async def stream(self, query: str, session_id: str) -> AsyncIterable[dict[str, Any]]:
-        agent_types = self.select_agent_types(query)
+        plan = self.build_collaboration_plan(query)
+        agent_types = list(plan.agents)
 
-        if len(agent_types) == 1:
-            async for response in self._route(query).stream(query, session_id):
-                response.setdefault("agents_used", [agent_types[0]])
+        if plan.mode == "single-agent":
+            agent_type = plan.agents[0]
+            async for response in self._get_agent(agent_type).stream(query, session_id):
+                response.setdefault("agents_used", [agent_type])
                 response.setdefault("collaboration_mode", "single-agent")
                 response.setdefault("critic_reviewed", False)
+                response.setdefault("collaboration_plan", plan.to_dict())
                 yield response
             return
 
@@ -512,21 +534,16 @@ class MultiAgent:
                 + ", ".join(agent_types)
                 + "."
             ),
+            "collaboration_plan": plan.to_dict(),
             "agents_used": agent_types,
             "collaboration_mode": "multi-agent",
         }
 
-        handoff_targets = {
-            target
-            for target, upstream_types in self.HANDOFF_TARGETS.items()
-            if target in agent_types and any(
-                upstream in agent_types for upstream in upstream_types
-            )
-        }
+        handoff_targets = plan.handoffs
         lead_types = [
-            agent_type
-            for agent_type in agent_types
-            if agent_type not in handoff_targets
+            step.agent
+            for step in plan.steps
+            if step.parallel_group == 1 and step.agent != "critic"
         ]
 
         tasks = [
@@ -553,6 +570,7 @@ class MultiAgent:
                     ),
                     "agents_used": agent_types,
                     "collaboration_mode": "multi-agent",
+                    "collaboration_plan": plan.to_dict(),
                 }
             else:
                 yield {
@@ -564,13 +582,14 @@ class MultiAgent:
                     ),
                     "agents_used": agent_types,
                     "collaboration_mode": "multi-agent",
+                    "collaboration_plan": plan.to_dict(),
                 }
 
         for target in handoff_targets:
             upstream = [
                 outcome
                 for outcome in outcomes
-                if outcome["agent"] in self.HANDOFF_TARGETS[target]
+                if outcome["agent"] in handoff_targets[target]
             ]
             outcome = await asyncio.to_thread(
                 self._run_specialist,
@@ -614,4 +633,5 @@ class MultiAgent:
             "content": synthesis.get("content", ""),
             "agents_used": agent_types,
             "critic_reviewed": synthesis.get("critic_reviewed", False),
+            "collaboration_plan": plan.to_dict(),
         }
