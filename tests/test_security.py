@@ -2,7 +2,6 @@
 
 import asyncio
 
-from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -24,16 +23,7 @@ def test_security_headers_are_present():
 
 
 def test_api_key_uses_bearer_auth(monkeypatch):
-    monkeypatch.setattr(
-        server_module,
-        "settings",
-        SimpleNamespace(
-            a2a_api_key="secret",
-            a2a_cors_origins=(),
-            a2a_rate_limit_per_minute=60,
-            a2a_max_request_body_bytes=1000000,
-        ),
-    )
+    monkeypatch.setattr(server_module.settings, "a2a_api_key", "secret")
     server = A2AServer()
     client = TestClient(server.app)
 
@@ -43,16 +33,8 @@ def test_api_key_uses_bearer_auth(monkeypatch):
 
 
 def test_oversized_request_is_rejected_before_jsonrpc_dispatch(monkeypatch):
-    monkeypatch.setattr(
-        server_module,
-        "settings",
-        SimpleNamespace(
-            a2a_api_key="",
-            a2a_cors_origins=(),
-            a2a_rate_limit_per_minute=60,
-            a2a_max_request_body_bytes=64,
-        ),
-    )
+    monkeypatch.setattr(server_module.settings, "a2a_api_key", "")
+    monkeypatch.setattr(server_module.settings, "a2a_max_request_body_bytes", 64)
     server = A2AServer()
     client = TestClient(server.app)
 
