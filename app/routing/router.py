@@ -123,6 +123,7 @@ class MultiAgent:
             raise ValueError(f"Unsupported remote specialist agents: {names}")
         self.specialist_timeout_seconds = settings.a2a_specialist_timeout_seconds
         self.specialist_max_retries = settings.a2a_specialist_max_retries
+        self.specialist_retry_backoff_seconds = settings.a2a_specialist_retry_backoff_seconds
         self.max_agent_calls_per_task = settings.a2a_max_agent_calls_per_task
         self._agent_lock = threading.Lock()
 
