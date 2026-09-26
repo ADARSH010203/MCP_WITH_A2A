@@ -650,3 +650,17 @@ def test_conflict_failures_are_not_retried():
     assert result["status"] == "error"
     assert result["attempts"] == 1
     assert len(agents["code"].calls) == 1
+
+
+def test_generic_algorithm_language_stays_with_deep_learning():
+    router = MultiAgent(fake_agents())
+
+    assert router.select_agent_types("Explain machine learning algorithms.") == [
+        "deep_learning"
+    ]
+
+
+def test_image_conversion_does_not_route_to_currency():
+    router = MultiAgent(fake_agents())
+
+    assert router.select_agent_types("Convert this image to PNG.") == ["image"]
