@@ -1,6 +1,7 @@
 """Security boundary tests for the A2A HTTP surface."""
 
-from types import SimpleNamespace
+import asyncio
+from dataclasses import replace
 
 from fastapi.testclient import TestClient
 
@@ -25,12 +26,7 @@ def test_api_key_uses_bearer_auth(monkeypatch):
     monkeypatch.setattr(
         server_module,
         "settings",
-        SimpleNamespace(
-            a2a_api_key="secret",
-            a2a_cors_origins=(),
-            a2a_rate_limit_per_minute=60,
-            a2a_max_request_body_bytes=1000000,
-        ),
+        replace(server_module.settings, a2a_api_key="secret"),
     )
     server = A2AServer()
     client = TestClient(server.app)
@@ -44,10 +40,9 @@ def test_oversized_request_is_rejected_before_jsonrpc_dispatch(monkeypatch):
     monkeypatch.setattr(
         server_module,
         "settings",
-        SimpleNamespace(
+        replace(
+            server_module.settings,
             a2a_api_key="",
-            a2a_cors_origins=(),
-            a2a_rate_limit_per_minute=60,
             a2a_max_request_body_bytes=64,
         ),
     )
@@ -81,9 +76,6 @@ def test_task_identifiers_have_bounded_length():
         raise AssertionError("Expected an oversized task ID to be rejected")
 
 
-import asyncio
-
-
 def test_chunked_body_is_bounded():
     server = A2AServer()
 
@@ -101,11 +93,7 @@ def test_bearer_scheme_is_case_insensitive(monkeypatch):
     monkeypatch.setattr(
         server_module,
         "settings",
-        SimpleNamespace(
-            a2a_api_key="secret",
-            a2a_rate_limit_per_minute=60,
-            a2a_max_request_body_bytes=1000000,
-        ),
+        replace(server_module.settings, a2a_api_key="secret"),
     )
     server = A2AServer()
     client = TestClient(server.app)
@@ -123,11 +111,7 @@ def test_non_json_content_type_is_rejected(monkeypatch):
     monkeypatch.setattr(
         server_module,
         "settings",
-        SimpleNamespace(
-            a2a_api_key="",
-            a2a_rate_limit_per_minute=60,
-            a2a_max_request_body_bytes=1000000,
-        ),
+        replace(server_module.settings, a2a_api_key=""),
     )
     server = A2AServer()
     client = TestClient(server.app)
@@ -169,3 +153,33 @@ def test_readiness_reports_task_store_state():
         A2AServer(agent_card=card, task_manager=TaskManager(True)).app
     )
     assert ready.get("/readyz").status_code == 200
+
+
+def test_cors_origin_loader_rejects_wildcards_and_paths(monkeypatch):
+    from app.config.settings import _load_cors_origins
+
+    monkeypatch.setenv("A2A_CORS_ORIGINS", "*")
+    try:
+        _load_cors_origins()
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Expected wildcard CORS origin to be rejected")
+
+    monkeypatch.setenv("A2A_CORS_ORIGINS", "https://example.com/app")
+    try:
+        _load_cors_origins()
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Expected CORS path to be rejected")
+
+
+def test_cors_origin_loader_deduplicates_exact_origins(monkeypatch):
+    from app.config.settings import _load_cors_origins
+
+    monkeypatch.setenv(
+        "A2A_CORS_ORIGINS",
+        "https://example.com, https://example.com/",
+    )
+    assert _load_cors_origins() == ("https://example.com",)

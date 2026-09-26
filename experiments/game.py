@@ -1,7 +1,6 @@
 import pygame
 import cv2
 import sounddevice as sd
-import numpy as np
 import webbrowser
 from io import StringIO
 import contextlib
@@ -330,7 +329,6 @@ def python_console():
     
     text_input = TextInput(50, 150, 600, 30, "Enter Python code...")
     output_lines = []
-    scroll_offset = 0
     
     while True:
         for event in pygame.event.get():

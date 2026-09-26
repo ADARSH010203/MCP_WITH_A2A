@@ -1,4 +1,4 @@
-"""MCP server exposing the currency exchange-rate demonstration tool."""
+"""MCP server exposing safe utility tools for the multi-agent system."""
 
 from mcp.server.fastmcp import FastMCP  # type: ignore
 

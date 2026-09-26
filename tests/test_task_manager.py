@@ -8,10 +8,12 @@ from app.a2a.models import (
     SendTaskStreamingRequest,
     TaskState,
     TaskSendParams,
+    TaskStatus,
     TextPart,
 )
 from app.a2a.task_manager import AgentTaskManager
 from app.a2a.task_store import SQLiteTaskStore
+from app.config.settings import settings
 
 
 class FakeNotificationAuth:
@@ -334,5 +336,86 @@ def test_streaming_timeout_is_marked_failed_and_terminal():
         assert events[-1].result is not None
         assert events[-1].result.status.state == TaskState.FAILED
         assert events[-1].result.final is True
+
+    asyncio.run(scenario())
+
+
+def test_task_history_is_bounded():
+    async def scenario():
+        agent = FakeAgent(
+            {
+                "status": "completed",
+                "is_task_complete": True,
+                "require_user_input": False,
+                "content": "done",
+            }
+        )
+        manager = AgentTaskManager(
+            agent,
+            FakeNotificationAuth(),
+            store=SQLiteTaskStore(":memory:"),
+        )
+        await manager.get_or_create_task(make_request("history-cap").params)
+        for index in range(130):
+            await manager.update_store(
+                "history-cap",
+                TaskStatus(
+                    state=TaskState.WORKING,
+                    message=Message(
+                        role="agent",
+                        parts=[TextPart(text=f"update-{index}")],
+                    ),
+                ),
+                [],
+            )
+
+        stored = await manager.get_stored_task("history-cap")
+        assert stored is not None
+        assert len(stored.history or []) <= settings.a2a_max_task_history_messages
+
+    asyncio.run(scenario())
+
+
+def test_interrupted_active_task_is_failed_on_manager_restart(tmp_path):
+    async def scenario():
+        db_path = str(tmp_path / "tasks.db")
+        store = SQLiteTaskStore(db_path)
+
+        agent = FakeAgent(
+            {
+                "status": "completed",
+                "is_task_complete": True,
+                "require_user_input": False,
+                "content": "done",
+            }
+        )
+        manager = AgentTaskManager(
+            agent,
+            FakeNotificationAuth(),
+            store=store,
+        )
+        request = make_request("stale-task")
+        await manager.get_or_create_task(request.params)
+        task = await manager.get_stored_task("stale-task")
+        assert task is not None
+
+        await manager.update_store(
+            "stale-task",
+            TaskStatus(state=TaskState.WORKING),
+            [],
+        )
+        store.close()
+
+        restarted = AgentTaskManager(
+            agent,
+            FakeNotificationAuth(),
+            store=SQLiteTaskStore(db_path),
+        )
+        recovered = await restarted.get_stored_task("stale-task")
+
+        assert recovered is not None
+        assert recovered.status.state == TaskState.FAILED
+        assert recovered.status.message is not None
+        assert "server restart" in recovered.status.message.parts[0].text.lower()
 
     asyncio.run(scenario())

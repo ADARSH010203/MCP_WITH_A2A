@@ -1,3 +1,5 @@
+from app.config.settings import settings
+
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Annotated, Any, Literal
@@ -277,6 +279,12 @@ class InvalidParamsError(JSONRPCError):
 class InternalError(JSONRPCError):
     code: int = -32603
     message: str = "Internal error"
+    data: Any | None = None
+
+
+class RateLimitError(JSONRPCError):
+    code: int = -32006
+    message: str = "Rate limit exceeded"
     data: Any | None = None
 
 

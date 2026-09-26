@@ -6,6 +6,7 @@ from collections.abc import AsyncIterable
 
 from app.a2a.models import (
     Artifact,
+    Message,
     CancelTaskRequest,
     CancelTaskResponse,
     GetTaskPushNotificationRequest,
@@ -84,6 +85,7 @@ class InMemoryTaskManager(TaskManager):
         self.store = store or SQLiteTaskStore(settings.a2a_task_db_path)
         self.store.purge_expired(settings.a2a_task_retention_days)
         self.tasks: dict[str, Task] = self.store.load_tasks()
+        self._recover_interrupted_tasks()
         self.push_notification_infos: dict[str, PushNotificationConfig] = (
             self.store.load_push_notification_configs()
         )
@@ -94,6 +96,26 @@ class InMemoryTaskManager(TaskManager):
     def is_ready(self) -> bool:
         """Return whether the durable task store is reachable."""
         return self.store.ping()
+
+    def _recover_interrupted_tasks(self) -> None:
+        """Mark process-local active tasks as failed after a server restart."""
+        for task in self.tasks.values():
+            if task.status.state not in {TaskState.SUBMITTED, TaskState.WORKING}:
+                continue
+
+            task.status = TaskStatus(
+                state=TaskState.FAILED,
+                message=Message(
+                    role="agent",
+                    parts=[
+                        {
+                            "type": "text",
+                            "text": "The task was interrupted by a server restart.",
+                        }
+                    ],
+                ),
+            )
+            self.store.save_task(task)
 
     async def get_stored_task(self, task_id: str) -> Task | None:
         """Return a stored task without changing its state."""
@@ -278,6 +300,9 @@ class InMemoryTaskManager(TaskManager):
                     task.artifacts = []
                 task.artifacts.extend(artifacts)
 
+            if task.history and len(task.history) > settings.a2a_max_task_history_messages:
+                task.history = task.history[-settings.a2a_max_task_history_messages :]
+
             self.store.save_task(task)
             return task
 
@@ -285,7 +310,8 @@ class InMemoryTaskManager(TaskManager):
         new_task = task.model_copy()
         history = new_task.history or []
         if historyLength is not None and historyLength > 0:
-            new_task.history = history[-historyLength:]
+            bounded_length = min(historyLength, settings.a2a_max_task_history_messages)
+            new_task.history = history[-bounded_length:]
         else:
             new_task.history = []
 

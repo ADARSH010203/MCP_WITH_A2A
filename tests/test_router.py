@@ -572,6 +572,7 @@ def test_parallel_specialist_exception_is_isolated():
         raise RuntimeError("factory failed")
 
     agents = fake_agents()
+    agents.pop("code")
     router = MultiAgent(
         agents=agents,
         agent_factories={
@@ -589,3 +590,80 @@ def test_parallel_specialist_exception_is_isolated():
     by_agent = {item["agent"]: item for item in outcomes}
     assert by_agent["code"]["status"] == "error"
     assert by_agent["deep_learning"]["status"] == "completed"
+
+
+def test_routes_common_natural_language_requests():
+    router = MultiAgent(fake_agents())
+
+    cases = {
+        "Can you convert 100 dollars to euros?": "currency",
+        "Please write an email asking for leave.": "email",
+        "Create an image of a mountain at sunset.": "image",
+        "I am designing a video game level.": "game",
+        "Explain machine learning model training.": "deep_learning",
+        "What is the time complexity of this LeetCode solution?": "dsa",
+        "Please write source code for this API.": "code",
+    }
+    for query, expected in cases.items():
+        assert router._detect_agent_type(router_message(query)) == expected
+
+
+def test_weak_secondary_match_does_not_trigger_unnecessary_collaboration():
+    router = MultiAgent(fake_agents())
+
+    selected = router.select_agent_types(
+        "Explain a Python package that converts USD identifiers."
+    )
+
+    assert selected == ["code"]
+
+
+def test_clear_cross_domain_signal_still_enables_collaboration():
+    router = MultiAgent(fake_agents())
+
+    selected = router.select_agent_types(
+        "Build a Python CNN image classification pipeline."
+    )
+
+    assert "deep_learning" in selected
+    assert "code" in selected
+    assert len(selected) == 2
+
+
+def test_conflict_failures_are_not_retried():
+    agents = fake_agents()
+
+    class ConflictAgent(FakeAgent):
+        def invoke(self, query: str, session_id: str) -> dict:
+            self.calls.append((query, session_id))
+            raise RemoteConflict()
+
+    class RemoteConflict(Exception):
+        status_code = 409
+
+    agents["code"] = ConflictAgent("code")
+    router = MultiAgent(agents=agents)
+    router.specialist_max_retries = 2
+    router.specialist_retry_backoff_seconds = 0
+
+    result = router.invoke("Write Python code", "session-conflict")
+
+    assert result["status"] == "error"
+    assert result["attempts"] == 1
+    assert len(agents["code"].calls) == 1
+
+
+def test_generic_algorithm_language_stays_with_deep_learning():
+    router = MultiAgent(fake_agents())
+
+    assert router.select_agent_types("Explain machine learning algorithms.") == [
+        "deep_learning"
+    ]
+
+
+def test_generic_convert_word_does_not_create_currency_fanout():
+    router = MultiAgent(fake_agents())
+
+    assert router.select_agent_types(
+        "Convert this visual concept into a picture."
+    ) == ["image"]

@@ -114,6 +114,11 @@ class Settings:
         30,
         minimum=0,
     )
+    a2a_max_task_history_messages: int = _env_int(
+        "A2A_MAX_TASK_HISTORY_MESSAGES",
+        100,
+        minimum=1,
+    )
     a2a_memory_db_path: str = os.getenv(
         "A2A_MEMORY_DB_PATH",
         ".data/a2a_memory.db",
@@ -230,7 +235,32 @@ def _load_specialist_api_keys() -> dict[str, str]:
 
 def _load_cors_origins() -> tuple[str, ...]:
     raw = os.getenv("A2A_CORS_ORIGINS", "")
-    return tuple(origin.strip() for origin in raw.split(",") if origin.strip())
+    if not raw.strip():
+        return ()
+
+    from urllib.parse import urlparse
+
+    origins: list[str] = []
+    for item in raw.split(","):
+        origin = item.strip().rstrip("/")
+        parsed = urlparse(origin)
+        if (
+            origin == "*"
+            or parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.username
+            or parsed.password
+            or parsed.path
+            or parsed.params
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError(
+                "A2A_CORS_ORIGINS must contain exact HTTP(S) origins without wildcards or paths"
+            )
+        origins.append(origin.rstrip("/"))
+
+    return tuple(dict.fromkeys(origins))
 
 
 settings = Settings()

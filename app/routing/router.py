@@ -62,6 +62,7 @@ class MultiAgent:
     ROUTES = AGENT_REGISTRY.as_routes()
     TASK_FOCUS = AGENT_REGISTRY.task_focus_map()
     HANDOFF_TARGETS = AGENT_REGISTRY.dependency_map()
+    MIN_COLLABORATION_SCORE = 3
     COLLABORATION_KEYWORDS: tuple[str, ...] = (
         "build",
         "design",
@@ -142,7 +143,7 @@ class MultiAgent:
     @staticmethod
     def _is_retryable_exception(error: Exception) -> bool:
         status_code = getattr(error, "status_code", None)
-        if status_code in {408, 409, 425, 429, 500, 502, 503, 504}:
+        if status_code in {408, 425, 429, 500, 502, 503, 504}:
             return True
 
         if isinstance(error, (TimeoutError, ConnectionError, OSError)):
@@ -221,9 +222,15 @@ class MultiAgent:
             for keyword in self.COLLABORATION_KEYWORDS
         )
 
-        if has_collaboration_signal or len(scores) >= 2:
+        strong_match_count = sum(
+            1
+            for score in scores.values()
+            if score >= self.MIN_COLLABORATION_SCORE
+        )
+        if has_collaboration_signal or strong_match_count >= 2:
             return selected
 
+        # Avoid fan-out from weak incidental matches such as "USD" or "python".
         return selected[:1]
 
     def build_collaboration_plan(

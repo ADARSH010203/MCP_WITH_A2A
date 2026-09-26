@@ -95,6 +95,7 @@ MCP_WITH_A2A/
 │   ├── mcp/
 │   │   ├── server.py
 │   │   └── tools/
+│   │       ├── calculator.py
 │   │       └── currency.py
 │   ├── routing/
 │   │   ├── router.py
@@ -187,10 +188,14 @@ A2A_RATE_LIMIT_PER_MINUTE=60
 A2A_MAX_INPUT_CHARS=20000
 A2A_SPECIALIST_TIMEOUT_SECONDS=45
 A2A_SPECIALIST_MAX_RETRIES=1
+A2A_SPECIALIST_RETRY_BACKOFF_SECONDS=0.25
 A2A_MAX_AGENT_CALLS_PER_TASK=6
 A2A_SPECIALIST_URLS=
+A2A_SPECIALIST_API_KEYS=
 A2A_REMOTE_CONNECT_TIMEOUT_SECONDS=10
 A2A_REMOTE_REQUEST_TIMEOUT_SECONDS=55
+A2A_MAX_TASK_HISTORY_MESSAGES=100
+A2A_MEMORY_RETENTION_DAYS=30
 ```
 
 Never commit a real API key.
@@ -316,23 +321,32 @@ The MCP layer now exposes two utility tools:
 
 The calculator parses Python's expression AST instead of calling `eval()`, accepts only numeric arithmetic operators, enforces an input-length limit, and rejects non-finite results. It is intentionally not a general-purpose code execution tool.
 
+### Pre-Phase-13 hardening
+
+Before the release package, the system was rechecked for common failure and security gaps. The current main branch includes bounded request-body streaming, content-type validation, constant-time API-key comparison, durable readiness checks, bounded remote-client reads, Agent Card origin validation, per-specialist credentials, transient-only retries with backoff, unexpected parallel-failure isolation, persistent-memory credential redaction, and configurable memory retention.
+
+These controls improve the current single-service and coordinator-mediated remote-specialist architecture. They do not turn SQLite, process-local rate limiting, active workers, or in-process tracing into distributed infrastructure.
+
 ## Security and Reliability
 
 - API credentials are loaded from environment variables and should never be committed.
 - The A2A endpoint supports optional bearer authentication through `A2A_API_KEY`.
-- The A2A endpoint applies a per-client rate limit and a maximum concurrent agent execution limit; these controls are process-local.
+- The A2A endpoint applies a per-client rate limit and a maximum concurrent agent execution limit; these controls are process-local. CORS configuration accepts only explicitly listed HTTP(S) origins.
 - Task input is validated for empty messages and has a configurable character limit.
-- The A2A client uses request timeouts and validates JSON responses.
+- The A2A client uses bounded connect/read/write/pool timeouts and validates JSON responses.
 - Streaming uses asynchronous agent and SSE paths to avoid blocking the event loop.
 - Push-notification callback URLs require HTTPS by default and private/loopback destinations are blocked.
 - Push notification JWTs are RSA-signed, include a request-body digest and unique token ID, and receivers reject reused tokens within the validity window.
-- A2A task state is persisted locally in SQLite by default, while live streaming subscribers and active workers remain process-local.
+- A2A task state is persisted locally in SQLite by default, while live streaming subscribers and active workers remain process-local. Per-task history is bounded to limit unbounded growth.
 - Duplicate task IDs are idempotent; reusing an ID for a different session or message is rejected.
 - Streaming tasks can be canceled while their worker is active.
 - Currency rates come from a daily reference-rate provider; they are not suitable for live trading or guaranteed settlement prices.
-- Specialist calls use a configurable timeout, and transient invocation errors can be retried once by default.
+- Specialist calls use a configurable timeout, and only classified transient invocation errors are retried with exponential backoff by default.
 - Each top-level task has a shared agent-call budget that includes specialist retries and the final critic call.
-- A timed-out call is isolated from the coordinator; Python cannot forcibly stop a running thread, so the underlying provider call may finish later in the background.
+- A timed-out call is isolated from the coordinator; Python cannot forcibly stop a running thread, so an underlying provider call may finish later in the background.
+- Remote specialist services can use dedicated bearer credentials through A2A_SPECIALIST_API_KEYS; the global A2A_API_KEY remains the fallback.
+- Remote Agent Cards are checked to remain on the configured service origin before a specialist client is created.
+- The A2A HTTP boundary requires application/json, enforces the request-body limit while streaming, and includes a durable-store readiness probe.
 
 ## Limitations
 
@@ -340,12 +354,12 @@ The calculator parses Python's expression AST instead of calling `eval()`, accep
 - Agent routing is deterministic and registry-driven, but ambiguous requests can still be misrouted or fall back to the code agent.
 - SQLite persistence protects task records across a single server restart, but it does not provide distributed task state across multiple server processes.
 - Live SSE subscriptions and running workers are still process-local; an active task cannot be resumed automatically after a server restart.
-- Agent conversation memory is still in-process via LangGraph's memory checkpointer.
+- Active LangGraph thread state remains process-local; bounded SQLite conversation memory is used for recovery across server restarts.
 - The critic performs consistency and completeness review; it is not an external fact-checking or source-verification system.
 - The default agent setup requires a valid Groq API key.
 - The current project is a demonstration architecture rather than a production-hardened distributed platform.
 - Remote specialist endpoints are operator-configured; the coordinator discovers each configured service only through explicit Agent Card retrieval.
-- Remote specialists share the configured A2A bearer credential when authentication is enabled; separate per-service credentials are not modeled yet.
+- Per-service remote credentials are supported, but credential rotation and a full service-identity/authorization layer are not modeled yet.
 
 ### Collaboration behavior
 
@@ -367,7 +381,7 @@ RL ─────────────────┘
 
 The dependency graph is validated for unknown dependencies and cycles before a plan is executed. Independent specialists share a parallel execution group; dependent specialists run only after the required upstream group has produced its findings. A trace event records whether each specialist execution used the local implementation or a remote A2A service.
 
-This remains deterministic and explainable. There is no LLM-based routing decision in this phase.
+This remains deterministic and explainable. Routing is still trigger-based rather than semantic or embedding-based, so genuinely ambiguous language can still be misclassified.
 
 ### Collaboration observability
 
@@ -400,7 +414,7 @@ WORKING
    └──→ CANCELED
 ```
 
-Tasks with the same ID and the same session/message are treated as retries and do not start a second agent execution. Streaming clients can reconnect to an active in-process worker or replay a terminal task's final state.
+Tasks with the same ID and the same session/message are treated as retries and do not start a second agent execution. Streaming clients can reconnect to an active in-process worker or replay a terminal task's final state. Tasks that were still SUBMITTED or WORKING when the server stopped are marked FAILED on the next startup because their process-local worker no longer exists.
 ### Persistent memory and durable task storage
 
 Agent conversation context is persisted in a bounded SQLite memory store at `A2A_MEMORY_DB_PATH`. Each specialist gets its own memory namespace, recent turns are capped by `A2A_MEMORY_TURNS`, and individual stored messages are bounded by `A2A_MEMORY_MAX_CHARS`.
@@ -435,7 +449,7 @@ Write a machine-readable report:
 python -m experiments.run_evaluation --json-output .data/evaluation.json
 ```
 
-The benchmark intentionally measures **routing and orchestration decisions**, not LLM answer quality. Live model quality evaluation will be added separately with a controlled dataset and provider-backed scoring.
+The benchmark intentionally measures **routing and orchestration decisions**, not LLM answer quality. A production-grade evaluation would additionally need a controlled dataset covering correctness, hallucination resistance, tool-use accuracy, safety, latency and cost.
 
 ## Example Requests
 
