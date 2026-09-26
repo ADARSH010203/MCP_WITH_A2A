@@ -157,3 +157,24 @@ def test_router_rejects_unknown_remote_specialist():
             agents={},
             remote_specialist_urls={"unknown": "http://127.0.0.1:8101"},
         )
+
+
+class ForeignCardResolver(FakeResolver):
+    def get_agent_card(self):
+        card = super().get_agent_card()
+        return card.model_copy(update={"url": "https://unexpected.example.com/a2a"})
+
+
+def test_remote_specialist_rejects_agent_card_origin_change(monkeypatch):
+    monkeypatch.setattr(
+        "app.routing.remote_specialist.A2ACardResolver",
+        ForeignCardResolver,
+    )
+
+    agent = RemoteA2ASpecialist(
+        agent_type="code",
+        url="https://agent.example.com",
+    )
+
+    with pytest.raises(ValueError, match="outside the configured service origin"):
+        agent._ensure_client()
