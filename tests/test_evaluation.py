@@ -54,8 +54,8 @@ def test_format_report_surfaces_metrics_and_failures():
         [
             BenchmarkCase(
                 name="intentional_failure",
-                query="Explain CNNs.",
-                expected_agents=("code",),
+                query="What is the exchange rate from USD to EUR?",
+                expected_agents=("email",),
                 expected_mode="single-agent",
             )
         ],
