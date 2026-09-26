@@ -1,6 +1,7 @@
 """Security boundary tests for the A2A HTTP surface."""
 
 import asyncio
+from types import SimpleNamespace
 
 
 from fastapi.testclient import TestClient
