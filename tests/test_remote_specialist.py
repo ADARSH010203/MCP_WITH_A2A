@@ -241,3 +241,32 @@ def test_router_rejects_unknown_remote_credentials(monkeypatch):
             agents={},
             remote_specialist_urls={},
         )
+
+
+def test_remote_agent_card_metadata_redacts_credentials(monkeypatch):
+    class CredentialCardResolver(FakeResolver):
+        def get_agent_card(self):
+            card = super().get_agent_card()
+            return card.model_copy(
+                update={
+                    "authentication": {
+                        "schemes": ["bearer"],
+                        "credentials": "do-not-leak",
+                    }
+                }
+            )
+
+    monkeypatch.setattr(
+        "app.routing.remote_specialist.A2ACardResolver",
+        CredentialCardResolver,
+    )
+
+    agent = RemoteA2ASpecialist(
+        agent_type="code",
+        url="http://127.0.0.1:8101",
+    )
+    agent._ensure_client()
+
+    metadata = agent._safe_agent_card_metadata()
+    assert metadata["authentication"]["schemes"] == ["bearer"]
+    assert "credentials" not in metadata["authentication"]
