@@ -225,7 +225,7 @@ class MultiAgent:
         strong_match_count = sum(
             1
             for score in scores.values()
-            if score >= cls.MIN_COLLABORATION_SCORE
+            if score >= self.MIN_COLLABORATION_SCORE
         )
         if has_collaboration_signal or strong_match_count >= 2:
             return selected
