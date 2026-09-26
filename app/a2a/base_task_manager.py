@@ -84,6 +84,7 @@ class InMemoryTaskManager(TaskManager):
         self.store = store or SQLiteTaskStore(settings.a2a_task_db_path)
         self.store.purge_expired(settings.a2a_task_retention_days)
         self.tasks: dict[str, Task] = self.store.load_tasks()
+        self._recover_interrupted_tasks()
         self.push_notification_infos: dict[str, PushNotificationConfig] = (
             self.store.load_push_notification_configs()
         )
@@ -94,6 +95,26 @@ class InMemoryTaskManager(TaskManager):
     def is_ready(self) -> bool:
         """Return whether the durable task store is reachable."""
         return self.store.ping()
+
+    def _recover_interrupted_tasks(self) -> None:
+        """Mark process-local active tasks as failed after a server restart."""
+        for task in self.tasks.values():
+            if task.status.state not in {TaskState.SUBMITTED, TaskState.WORKING}:
+                continue
+
+            task.status = TaskStatus(
+                state=TaskState.FAILED,
+                message=Message(
+                    role="agent",
+                    parts=[
+                        {
+                            "type": "text",
+                            "text": "The task was interrupted by a server restart.",
+                        }
+                    ],
+                ),
+            )
+            self.store.save_task(task)
 
     async def get_stored_task(self, task_id: str) -> Task | None:
         """Return a stored task without changing its state."""
