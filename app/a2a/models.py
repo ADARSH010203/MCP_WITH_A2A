@@ -282,6 +282,12 @@ class InternalError(JSONRPCError):
     data: Any | None = None
 
 
+class RateLimitError(JSONRPCError):
+    code: int = -32006
+    message: str = "Rate limit exceeded"
+    data: Any | None = None
+
+
 class TaskNotFoundError(JSONRPCError):
     code: int = -32001
     message: str = "Task not found"
