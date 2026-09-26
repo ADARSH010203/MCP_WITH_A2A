@@ -30,6 +30,16 @@ class RemoteA2ASpecialist:
     def agent_card(self) -> AgentCard | None:
         return self._agent_card
 
+    def _safe_agent_card_metadata(self) -> dict[str, Any]:
+        if self._agent_card is None:
+            return {}
+
+        metadata = self._agent_card.model_dump(exclude_none=True)
+        authentication = metadata.get("authentication")
+        if isinstance(authentication, dict):
+            authentication.pop("credentials", None)
+        return metadata
+
     @staticmethod
     def _is_retryable_error(error: Exception) -> bool:
         status_code = getattr(error, "status_code", None)
@@ -180,9 +190,7 @@ class RemoteA2ASpecialist:
                 "remote_url": self.url,
                 "remote_task_id": task_id,
                 "remote_agent_card": (
-                    self._agent_card.model_dump(exclude_none=True)
-                    if self._agent_card is not None
-                    else {}
+                    self._safe_agent_card_metadata()
                 ),
             }
             if state == TaskState.INPUT_REQUIRED:
