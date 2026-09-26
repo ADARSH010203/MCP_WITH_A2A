@@ -336,3 +336,47 @@ def test_streaming_timeout_is_marked_failed_and_terminal():
         assert events[-1].result.final is True
 
     asyncio.run(scenario())
+
+
+def test_task_history_is_bounded():
+    import asyncio
+
+    from app.a2a.task_store import SQLiteTaskStore
+
+    class Manager(AgentTaskManager):
+        pass
+
+    async def scenario():
+        agent = FakeAgent(
+            {
+                "status": "completed",
+                "is_task_complete": True,
+                "require_user_input": False,
+                "content": "done",
+            }
+        )
+        manager = Manager(
+            agent,
+            FakeNotificationAuth(),
+            store=SQLiteTaskStore(":memory:"),
+        )
+        previous = await manager.get_or_create_task(make_request("history-cap"))
+        task = previous[0]
+        for index in range(130):
+            await manager.update_store(
+                "history-cap",
+                TaskStatus(
+                    state=TaskState.WORKING,
+                    message=Message(
+                        role="agent",
+                        parts=[TextPart(text=f"update-{index}")],
+                    ),
+                ),
+                [],
+            )
+
+        stored = await manager.get_stored_task("history-cap")
+        assert stored is not None
+        assert len(stored.history or []) <= settings.a2a_max_task_history_messages
+
+    asyncio.run(scenario())
