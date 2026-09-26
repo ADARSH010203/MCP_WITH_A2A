@@ -3,7 +3,6 @@
 import asyncio
 from dataclasses import replace
 
-
 from fastapi.testclient import TestClient
 
 from app.a2a.server import A2AServer
@@ -94,11 +93,7 @@ def test_bearer_scheme_is_case_insensitive(monkeypatch):
     monkeypatch.setattr(
         server_module,
         "settings",
-        SimpleNamespace(
-            a2a_api_key="secret",
-            a2a_rate_limit_per_minute=60,
-            a2a_max_request_body_bytes=1000000,
-        ),
+        replace(server_module.settings, a2a_api_key="secret"),
     )
     server = A2AServer()
     client = TestClient(server.app)
@@ -116,11 +111,7 @@ def test_non_json_content_type_is_rejected(monkeypatch):
     monkeypatch.setattr(
         server_module,
         "settings",
-        SimpleNamespace(
-            a2a_api_key="",
-            a2a_rate_limit_per_minute=60,
-            a2a_max_request_body_bytes=1000000,
-        ),
+        replace(server_module.settings, a2a_api_key=""),
     )
     server = A2AServer()
     client = TestClient(server.app)
