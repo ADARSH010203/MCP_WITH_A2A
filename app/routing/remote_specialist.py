@@ -43,7 +43,7 @@ class RemoteA2ASpecialist:
     @staticmethod
     def _is_retryable_error(error: Exception) -> bool:
         status_code = getattr(error, "status_code", None)
-        return status_code in {408, 409, 425, 429, 500, 502, 503, 504}
+        return status_code in {408, 425, 429, 500, 502, 503, 504}
 
     def _ensure_client(self) -> A2AClient:
         if self._client is not None:
