@@ -44,8 +44,8 @@ class SQLiteConversationMemory:
     ) -> None:
         if max_turns < 1:
             raise ValueError("max_turns must be positive")
-        if max_chars < 100:
-            raise ValueError("max_chars must be at least 100")
+        if max_chars < 1:
+            raise ValueError("max_chars must be positive")
         if retention_days < 0:
             raise ValueError("retention_days must be non-negative")
 
