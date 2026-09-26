@@ -242,12 +242,14 @@ def _load_cors_origins() -> tuple[str, ...]:
 
     origins: list[str] = []
     for item in raw.split(","):
-        origin = item.strip()
+        origin = item.strip().rstrip("/")
         parsed = urlparse(origin)
         if (
             origin == "*"
             or parsed.scheme not in {"http", "https"}
             or not parsed.netloc
+            or parsed.username
+            or parsed.password
             or parsed.path
             or parsed.params
             or parsed.query
