@@ -1,5 +1,7 @@
 """Security boundary tests for the A2A HTTP surface."""
 
+import asyncio
+
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -79,9 +81,6 @@ def test_task_identifiers_have_bounded_length():
         pass
     else:
         raise AssertionError("Expected an oversized task ID to be rejected")
-
-
-import asyncio
 
 
 def test_chunked_body_is_bounded():
