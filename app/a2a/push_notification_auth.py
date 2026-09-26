@@ -194,7 +194,10 @@ class PushNotificationReceiverAuth(PushNotificationAuth):
 
         token = auth_header[len(AUTH_HEADER_PREFIX) :].strip()
         try:
-            signing_key = self.jwks_client.get_signing_key_from_jwt(token)
+            signing_key = await asyncio.to_thread(
+                self.jwks_client.get_signing_key_from_jwt,
+                token,
+            )
             decoded = jwt.decode(
                 token,
                 signing_key,
