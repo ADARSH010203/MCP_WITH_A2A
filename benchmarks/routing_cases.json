@@ -2,82 +2,165 @@
   {
     "name": "currency_exchange",
     "query": "What is the exchange rate from USD to EUR?",
-    "expected_agents": ["currency"],
+    "expected_agents": [
+      "currency"
+    ],
     "expected_mode": "single-agent"
   },
   {
     "name": "professional_email",
     "query": "Write a professional email asking for college leave.",
-    "expected_agents": ["email"],
+    "expected_agents": [
+      "email"
+    ],
     "expected_mode": "single-agent"
   },
   {
     "name": "image_generation",
     "query": "Generate an image of a futuristic city at night.",
-    "expected_agents": ["image"],
+    "expected_agents": [
+      "image"
+    ],
     "expected_mode": "single-agent"
   },
   {
     "name": "game_design",
     "query": "Design a Unity game level with simple game mechanics.",
-    "expected_agents": ["game"],
+    "expected_agents": [
+      "game"
+    ],
     "expected_mode": "single-agent"
   },
   {
     "name": "deep_learning",
     "query": "Explain CNN training in PyTorch.",
-    "expected_agents": ["deep_learning"],
+    "expected_agents": [
+      "deep_learning"
+    ],
     "expected_mode": "single-agent"
   },
   {
     "name": "reinforcement_learning",
     "query": "Explain Q-learning and reward design.",
-    "expected_agents": ["reinforcement"],
+    "expected_agents": [
+      "reinforcement"
+    ],
     "expected_mode": "single-agent"
   },
   {
     "name": "dsa",
     "query": "Solve this binary search problem and explain its complexity.",
-    "expected_agents": ["dsa"],
+    "expected_agents": [
+      "dsa"
+    ],
     "expected_mode": "single-agent"
   },
   {
     "name": "code",
     "query": "Debug this Python API and fix the implementation bug.",
-    "expected_agents": ["code"],
+    "expected_agents": [
+      "code"
+    ],
     "expected_mode": "single-agent"
   },
   {
     "name": "deep_learning_plus_code",
     "query": "Build a Python CNN image classification pipeline.",
-    "expected_agents": ["deep_learning", "code"],
+    "expected_agents": [
+      "deep_learning",
+      "code"
+    ],
     "expected_mode": "multi-agent",
     "expected_handoffs": {
-      "code": ["deep_learning"]
+      "code": [
+        "deep_learning"
+      ]
     }
   },
   {
     "name": "rl_game_plus_code",
     "query": "Design a game using Q-learning and implement it in Python.",
-    "expected_agents": ["reinforcement", "code", "game"],
+    "expected_agents": [
+      "reinforcement",
+      "code",
+      "game"
+    ],
     "expected_mode": "multi-agent",
     "expected_handoffs": {
-      "code": ["reinforcement", "game"]
+      "code": [
+        "reinforcement",
+        "game"
+      ]
     }
   },
   {
     "name": "nlp_plus_code",
     "query": "Design a transformer NLP model and write the Python API.",
-    "expected_agents": ["deep_learning", "code"],
+    "expected_agents": [
+      "deep_learning",
+      "code"
+    ],
     "expected_mode": "multi-agent",
     "expected_handoffs": {
-      "code": ["deep_learning"]
+      "code": [
+        "deep_learning"
+      ]
     }
   },
   {
     "name": "image_classification_routing",
     "query": "Analyze image classification model choices.",
-    "expected_agents": ["deep_learning"],
+    "expected_agents": [
+      "deep_learning"
+    ],
+    "expected_mode": "single-agent"
+  },
+  {
+    "name": "currency_natural_language",
+    "query": "Can you convert 100 dollars to euros?",
+    "expected_agents": [
+      "currency"
+    ],
+    "expected_mode": "single-agent"
+  },
+  {
+    "name": "email_leave_request",
+    "query": "Please write an email asking for leave.",
+    "expected_agents": [
+      "email"
+    ],
+    "expected_mode": "single-agent"
+  },
+  {
+    "name": "machine_learning_explanation",
+    "query": "Explain machine learning algorithms.",
+    "expected_agents": [
+      "deep_learning"
+    ],
+    "expected_mode": "single-agent"
+  },
+  {
+    "name": "source_code_request",
+    "query": "Please write source code for this API.",
+    "expected_agents": [
+      "code"
+    ],
+    "expected_mode": "single-agent"
+  },
+  {
+    "name": "visual_concept",
+    "query": "Convert this visual concept into a picture.",
+    "expected_agents": [
+      "image"
+    ],
+    "expected_mode": "single-agent"
+  },
+  {
+    "name": "weak_secondary_match",
+    "query": "Explain a Python package that converts USD identifiers.",
+    "expected_agents": [
+      "code"
+    ],
     "expected_mode": "single-agent"
   }
 ]
