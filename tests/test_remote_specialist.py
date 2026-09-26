@@ -178,3 +178,39 @@ def test_remote_specialist_rejects_agent_card_origin_change(monkeypatch):
 
     with pytest.raises(ValueError, match="outside the configured service origin"):
         agent._ensure_client()
+
+
+def test_router_uses_per_specialist_api_key(monkeypatch):
+    from types import SimpleNamespace
+
+    import app.routing.router as router_module
+
+    created = []
+
+    class FakeRemote:
+        def __init__(self, **kwargs):
+            created.append(kwargs)
+
+    monkeypatch.setattr(router_module, "RemoteA2ASpecialist", FakeRemote)
+    monkeypatch.setattr(
+        router_module,
+        "settings",
+        SimpleNamespace(
+            a2a_max_collaborative_agents=3,
+            a2a_specialist_urls={},
+            a2a_specialist_api_keys={"code": "code-secret"},
+            a2a_specialist_timeout_seconds=45,
+            a2a_specialist_max_retries=1,
+            a2a_specialist_retry_backoff_seconds=0,
+            a2a_max_agent_calls_per_task=6,
+            a2a_api_key="global-secret",
+        ),
+    )
+
+    router = router_module.MultiAgent(
+        agents={},
+        remote_specialist_urls={"code": "http://127.0.0.1:8101"},
+    )
+    router._get_agent("code")
+
+    assert created[0]["api_key"] == "code-secret"
