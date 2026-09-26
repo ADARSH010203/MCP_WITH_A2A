@@ -121,6 +121,14 @@ class MultiAgent:
         if unknown_remote_agents:
             names = ", ".join(sorted(unknown_remote_agents))
             raise ValueError(f"Unsupported remote specialist agents: {names}")
+
+        unknown_remote_credentials = (
+            set(settings.a2a_specialist_api_keys)
+            - set(self.AGENT_REGISTRY.names())
+        )
+        if unknown_remote_credentials:
+            names = ", ".join(sorted(unknown_remote_credentials))
+            raise ValueError(f"Unsupported remote specialist credentials: {names}")
         self.specialist_timeout_seconds = settings.a2a_specialist_timeout_seconds
         self.specialist_max_retries = settings.a2a_specialist_max_retries
         self.specialist_retry_backoff_seconds = settings.a2a_specialist_retry_backoff_seconds
