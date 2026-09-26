@@ -169,3 +169,33 @@ def test_readiness_reports_task_store_state():
         A2AServer(agent_card=card, task_manager=TaskManager(True)).app
     )
     assert ready.get("/readyz").status_code == 200
+
+
+def test_cors_origin_loader_rejects_wildcards_and_paths(monkeypatch):
+    from app.config.settings import _load_cors_origins
+
+    monkeypatch.setenv("A2A_CORS_ORIGINS", "*")
+    try:
+        _load_cors_origins()
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Expected wildcard CORS origin to be rejected")
+
+    monkeypatch.setenv("A2A_CORS_ORIGINS", "https://example.com/app")
+    try:
+        _load_cors_origins()
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Expected CORS path to be rejected")
+
+
+def test_cors_origin_loader_deduplicates_exact_origins(monkeypatch):
+    from app.config.settings import _load_cors_origins
+
+    monkeypatch.setenv(
+        "A2A_CORS_ORIGINS",
+        "https://example.com, https://example.com/",
+    )
+    assert _load_cors_origins() == ("https://example.com",)
