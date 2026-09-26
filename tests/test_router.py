@@ -660,7 +660,9 @@ def test_generic_algorithm_language_stays_with_deep_learning():
     ]
 
 
-def test_image_conversion_does_not_route_to_currency():
+def test_generic_convert_word_does_not_create_currency_fanout():
     router = MultiAgent(fake_agents())
 
-    assert router.select_agent_types("Convert this image to PNG.") == ["image"]
+    assert router.select_agent_types(
+        "Convert this visual concept into a picture."
+    ) == ["image"]
