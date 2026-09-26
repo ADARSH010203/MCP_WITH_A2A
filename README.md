@@ -330,13 +330,13 @@ These controls improve the current single-service and coordinator-mediated remot
 
 - API credentials are loaded from environment variables and should never be committed.
 - The A2A endpoint supports optional bearer authentication through `A2A_API_KEY`.
-- The A2A endpoint applies a per-client rate limit and a maximum concurrent agent execution limit; these controls are process-local.
+- The A2A endpoint applies a per-client rate limit and a maximum concurrent agent execution limit; these controls are process-local. CORS configuration accepts only explicitly listed HTTP(S) origins.
 - Task input is validated for empty messages and has a configurable character limit.
 - The A2A client uses bounded connect/read/write/pool timeouts and validates JSON responses.
 - Streaming uses asynchronous agent and SSE paths to avoid blocking the event loop.
 - Push-notification callback URLs require HTTPS by default and private/loopback destinations are blocked.
 - Push notification JWTs are RSA-signed, include a request-body digest and unique token ID, and receivers reject reused tokens within the validity window.
-- A2A task state is persisted locally in SQLite by default, while live streaming subscribers and active workers remain process-local.
+- A2A task state is persisted locally in SQLite by default, while live streaming subscribers and active workers remain process-local. Per-task history is bounded to limit unbounded growth.
 - Duplicate task IDs are idempotent; reusing an ID for a different session or message is rejected.
 - Streaming tasks can be canceled while their worker is active.
 - Currency rates come from a daily reference-rate provider; they are not suitable for live trading or guaranteed settlement prices.
@@ -413,7 +413,7 @@ WORKING
    └──→ CANCELED
 ```
 
-Tasks with the same ID and the same session/message are treated as retries and do not start a second agent execution. Streaming clients can reconnect to an active in-process worker or replay a terminal task's final state.
+Tasks with the same ID and the same session/message are treated as retries and do not start a second agent execution. Streaming clients can reconnect to an active in-process worker or replay a terminal task's final state. Tasks that were still SUBMITTED or WORKING when the server stopped are marked FAILED on the next startup because their process-local worker no longer exists.
 ### Persistent memory and durable task storage
 
 Agent conversation context is persisted in a bounded SQLite memory store at `A2A_MEMORY_DB_PATH`. Each specialist gets its own memory namespace, recent turns are capped by `A2A_MEMORY_TURNS`, and individual stored messages are bounded by `A2A_MEMORY_MAX_CHARS`.
