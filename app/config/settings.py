@@ -114,6 +114,11 @@ class Settings:
         30,
         minimum=0,
     )
+    a2a_max_task_history_messages: int = _env_int(
+        "A2A_MAX_TASK_HISTORY_MESSAGES",
+        100,
+        minimum=1,
+    )
     a2a_memory_db_path: str = os.getenv(
         "A2A_MEMORY_DB_PATH",
         ".data/a2a_memory.db",
