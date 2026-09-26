@@ -137,3 +137,33 @@ def test_non_json_content_type_is_rejected(monkeypatch):
     )
 
     assert response.status_code == 415
+
+
+def test_readiness_reports_task_store_state():
+    from app.a2a.models import AgentCapabilities, AgentCard
+
+    class TaskManager:
+        def __init__(self, ready):
+            self.ready = ready
+
+        def is_ready(self):
+            return self.ready
+
+    card = AgentCard(
+        name="Test",
+        description="test",
+        url="http://127.0.0.1:8000/",
+        version="1.0.0",
+        capabilities=AgentCapabilities(),
+        skills=[],
+    )
+
+    not_ready = TestClient(
+        A2AServer(agent_card=card, task_manager=TaskManager(False)).app
+    )
+    assert not_ready.get("/readyz").status_code == 503
+
+    ready = TestClient(
+        A2AServer(agent_card=card, task_manager=TaskManager(True)).app
+    )
+    assert ready.get("/readyz").status_code == 200
