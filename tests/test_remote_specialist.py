@@ -214,3 +214,30 @@ def test_router_uses_per_specialist_api_key(monkeypatch):
     router._get_agent("code")
 
     assert created[0]["api_key"] == "code-secret"
+
+
+def test_router_rejects_unknown_remote_credentials(monkeypatch):
+    from types import SimpleNamespace
+
+    import app.routing.router as router_module
+
+    monkeypatch.setattr(
+        router_module,
+        "settings",
+        SimpleNamespace(
+            a2a_max_collaborative_agents=3,
+            a2a_specialist_urls={},
+            a2a_specialist_api_keys={"unknown": "secret"},
+            a2a_specialist_timeout_seconds=45,
+            a2a_specialist_max_retries=1,
+            a2a_specialist_retry_backoff_seconds=0,
+            a2a_max_agent_calls_per_task=6,
+            a2a_api_key="",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Unsupported remote specialist credentials"):
+        router_module.MultiAgent(
+            agents={},
+            remote_specialist_urls={},
+        )
