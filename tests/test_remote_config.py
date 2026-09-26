@@ -40,3 +40,28 @@ def test_load_specialist_urls_rejects_duplicate_agent_types(monkeypatch):
 
     with pytest.raises(ValueError, match="duplicate agent type"):
         _load_specialist_urls()
+
+
+def test_load_specialist_api_keys_parses_and_rejects_duplicates(monkeypatch):
+    from app.config.settings import _load_specialist_api_keys
+
+    monkeypatch.setenv(
+        "A2A_SPECIALIST_API_KEYS",
+        "code=code-secret;deep_learning=dl-secret",
+    )
+    assert _load_specialist_api_keys() == {
+        "code": "code-secret",
+        "deep_learning": "dl-secret",
+    }
+
+    monkeypatch.setenv("A2A_SPECIALIST_API_KEYS", "code=one;code=two")
+    with pytest.raises(ValueError, match="duplicate agent type"):
+        _load_specialist_api_keys()
+
+
+def test_load_specialist_api_keys_rejects_empty_values(monkeypatch):
+    from app.config.settings import _load_specialist_api_keys
+
+    monkeypatch.setenv("A2A_SPECIALIST_API_KEYS", "code=")
+    with pytest.raises(ValueError, match="non-empty"):
+        _load_specialist_api_keys()

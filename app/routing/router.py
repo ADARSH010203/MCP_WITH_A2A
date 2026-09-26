@@ -121,14 +121,48 @@ class MultiAgent:
         if unknown_remote_agents:
             names = ", ".join(sorted(unknown_remote_agents))
             raise ValueError(f"Unsupported remote specialist agents: {names}")
+
+        unknown_remote_credentials = (
+            set(settings.a2a_specialist_api_keys)
+            - set(self.AGENT_REGISTRY.names())
+        )
+        if unknown_remote_credentials:
+            names = ", ".join(sorted(unknown_remote_credentials))
+            raise ValueError(f"Unsupported remote specialist credentials: {names}")
         self.specialist_timeout_seconds = settings.a2a_specialist_timeout_seconds
         self.specialist_max_retries = settings.a2a_specialist_max_retries
+        self.specialist_retry_backoff_seconds = settings.a2a_specialist_retry_backoff_seconds
         self.max_agent_calls_per_task = settings.a2a_max_agent_calls_per_task
         self._agent_lock = threading.Lock()
 
     @staticmethod
     def _normalize(text: str) -> str:
         return re.sub(r"\s+", " ", text.casefold()).strip()
+
+    @staticmethod
+    def _is_retryable_exception(error: Exception) -> bool:
+        status_code = getattr(error, "status_code", None)
+        if status_code in {408, 409, 425, 429, 500, 502, 503, 504}:
+            return True
+
+        if isinstance(error, (TimeoutError, ConnectionError, OSError)):
+            return True
+
+        message = str(error).casefold()
+        return any(
+            marker in message
+            for marker in (
+                "temporar",
+                "rate limit",
+                "too many requests",
+                "service unavailable",
+                "connection reset",
+                "connection refused",
+                "timed out",
+                "timeout",
+                "try again",
+            )
+        )
 
     @classmethod
     def _keyword_matches(cls, text: str, keyword: str) -> bool:
@@ -223,7 +257,10 @@ class MultiAgent:
                 agent = RemoteA2ASpecialist(
                     agent_type=agent_type,
                     url=remote_url,
-                    api_key=settings.a2a_api_key,
+                    api_key=settings.a2a_specialist_api_keys.get(
+                        agent_type,
+                        settings.a2a_api_key,
+                    ),
                 )
             else:
                 factory = self.agent_factories.get(agent_type)
@@ -328,6 +365,7 @@ class MultiAgent:
                 "status": "error",
                 "content": f"Specialist failed: {exc}",
                 "attempts": 1,
+                "retryable": self._is_retryable_exception(exc),
             }
             if trace:
                 trace.record(
@@ -353,6 +391,15 @@ class MultiAgent:
             outcome.setdefault("agent", agent_type)
             outcome.setdefault("status", "error")
             outcome["content"] = str(outcome.get("content", "")).strip()
+            if outcome["status"] == "error":
+                outcome["retryable"] = bool(
+                    outcome.get("retryable", False)
+                    or self._is_retryable_exception(
+                        RuntimeError(outcome["content"])
+                    )
+                )
+            else:
+                outcome["retryable"] = False
             outcome["attempts"] = 1
 
         if trace:
@@ -396,16 +443,22 @@ class MultiAgent:
 
             outcome["attempts"] = attempt + 1
 
-            if outcome["status"] != "error":
+            if outcome["status"] != "error" or not outcome.get("retryable", False):
                 return outcome
             if attempt >= self.specialist_max_retries:
                 return outcome
+
+            backoff = self.specialist_retry_backoff_seconds * (2**attempt)
+            if backoff > 0:
+                time.sleep(backoff)
+
             if trace:
                 trace.record(
                     "specialist_retry",
                     agent_type,
                     "retrying",
                     attempt=attempt + 1,
+                    details={"backoff_seconds": backoff},
                 )
 
         return {
@@ -413,6 +466,7 @@ class MultiAgent:
             "status": "error",
             "content": "Specialist failed after retries.",
             "attempts": self.specialist_max_retries + 1,
+            "retryable": False,
         }
 
     def _synthesize_with_timeout(
@@ -645,6 +699,40 @@ class MultiAgent:
             trace=trace,
         )
 
+    def _run_specialist_safely(
+        self,
+        agent_type: str,
+        query: str,
+        session_id: str,
+        upstream_findings: list[dict[str, Any]] | None = None,
+        budget: CallBudget | None = None,
+        trace: CollaborationTrace | None = None,
+    ) -> dict[str, Any]:
+        try:
+            return self._run_specialist(
+                agent_type,
+                query,
+                session_id,
+                upstream_findings,
+                budget,
+                trace,
+            )
+        except Exception as exc:
+            if trace:
+                trace.record(
+                    "specialist_completed",
+                    agent_type,
+                    "error",
+                    details={"error": str(exc), "unexpected": True},
+                )
+            return {
+                "agent": agent_type,
+                "status": "error",
+                "content": f"Specialist failed unexpectedly: {exc}",
+                "attempts": 1,
+                "retryable": self._is_retryable_exception(exc),
+            }
+
     def _run_parallel_specialists(
         self,
         agent_types: list[str],
@@ -665,7 +753,7 @@ class MultiAgent:
         ) as executor:
             futures = [
                 executor.submit(
-                    self._run_specialist,
+                    self._run_specialist_safely,
                     agent_type,
                     query,
                     session_id,
@@ -976,7 +1064,7 @@ class MultiAgent:
                 tasks = [
                     asyncio.create_task(
                         asyncio.to_thread(
-                            self._run_specialist,
+                            self._run_specialist_safely,
                             step.agent,
                             query,
                             session_id,
@@ -1024,7 +1112,7 @@ class MultiAgent:
                     details={"upstream": [item["agent"] for item in upstream]},
                 )
                 outcome = await asyncio.to_thread(
-                    self._run_specialist,
+                    self._run_specialist_safely,
                     step.agent,
                     query,
                     session_id,

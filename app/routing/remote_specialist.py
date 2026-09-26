@@ -1,6 +1,7 @@
 """Remote specialist adapter that speaks A2A to an independent agent service."""
 
 import asyncio
+from urllib.parse import urlparse
 from collections.abc import AsyncIterable
 from typing import Any
 from uuid import uuid4
@@ -29,6 +30,11 @@ class RemoteA2ASpecialist:
     def agent_card(self) -> AgentCard | None:
         return self._agent_card
 
+    @staticmethod
+    def _is_retryable_error(error: Exception) -> bool:
+        status_code = getattr(error, "status_code", None)
+        return status_code in {408, 409, 425, 429, 500, 502, 503, 504}
+
     def _ensure_client(self) -> A2AClient:
         if self._client is not None:
             return self._client
@@ -41,6 +47,20 @@ class RemoteA2ASpecialist:
         if not card.skills:
             raise ValueError(
                 f"Remote agent '{self.agent_type}' returned an Agent Card without skills."
+            )
+
+        configured = urlparse(self.url)
+        advertised = urlparse(card.url)
+        if (
+            advertised.scheme not in {"http", "https"}
+            or advertised.username
+            or advertised.password
+            or advertised.scheme != configured.scheme
+            or advertised.netloc != configured.netloc
+        ):
+            raise ValueError(
+                f"Remote agent '{self.agent_type}' returned an Agent Card URL "
+                "outside the configured service origin."
             )
 
         self._agent_card = card
@@ -128,6 +148,7 @@ class RemoteA2ASpecialist:
                     "execution_mode": "remote-a2a",
                     "remote_url": self.url,
                     "remote_task_id": task_id,
+                    "retryable": False,
                 }
 
             task = response.result
@@ -178,6 +199,7 @@ class RemoteA2ASpecialist:
                 "execution_mode": "remote-a2a",
                 "remote_url": self.url,
                 "remote_task_id": task_id,
+                "retryable": self._is_retryable_error(exc),
             }
 
     async def stream(
@@ -263,4 +285,5 @@ class RemoteA2ASpecialist:
                 "execution_mode": "remote-a2a",
                 "remote_url": self.url,
                 "remote_task_id": task_id,
+                "retryable": self._is_retryable_error(exc),
             }

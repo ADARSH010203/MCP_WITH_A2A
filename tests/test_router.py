@@ -531,3 +531,61 @@ def test_streaming_error_is_reflected_in_trace():
         assert final["collaboration_trace"]["events"][-1]["stage"] == "request_completed"
 
     asyncio.run(scenario())
+
+
+class PermanentFailureAgent(FakeAgent):
+    def invoke(self, query: str, session_id: str) -> dict:
+        self.calls.append((query, session_id))
+        raise ValueError("invalid request")
+
+
+def test_permanent_specialist_failures_are_not_retried():
+    agents = fake_agents()
+    agents["code"] = PermanentFailureAgent("code")
+    router = MultiAgent(agents=agents)
+    router.specialist_max_retries = 3
+    router.specialist_retry_backoff_seconds = 0
+
+    result = router.invoke("Write Python code", "session-permanent-error")
+
+    assert result["status"] == "error"
+    assert result["attempts"] == 1
+    assert len(agents["code"].calls) == 1
+
+
+def test_transient_specialist_failures_are_retryable():
+    agents = fake_agents()
+    agents["code"] = RetryAgent("code")
+    router = MultiAgent(agents=agents)
+    router.specialist_max_retries = 1
+    router.specialist_retry_backoff_seconds = 0
+
+    result = router.invoke("Write Python code", "session-transient-error")
+
+    assert result["status"] == "completed"
+    assert result["attempts"] == 2
+    assert len(agents["code"].calls) == 2
+
+
+def test_parallel_specialist_exception_is_isolated():
+    def broken_factory():
+        raise RuntimeError("factory failed")
+
+    agents = fake_agents()
+    router = MultiAgent(
+        agents=agents,
+        agent_factories={
+            **MultiAgent.DEFAULT_AGENT_FACTORIES,
+            "code": broken_factory,
+        },
+    )
+    router.specialist_retry_backoff_seconds = 0
+    outcomes = router._run_parallel_specialists(
+        ["code", "deep_learning"],
+        "Build a model",
+        "session-parallel-failure",
+    )
+
+    by_agent = {item["agent"]: item for item in outcomes}
+    assert by_agent["code"]["status"] == "error"
+    assert by_agent["deep_learning"]["status"] == "completed"
