@@ -130,6 +130,31 @@ class MultiAgent:
     def _normalize(text: str) -> str:
         return re.sub(r"\s+", " ", text.casefold()).strip()
 
+    @staticmethod
+    def _is_retryable_exception(error: Exception) -> bool:
+        status_code = getattr(error, "status_code", None)
+        if status_code in {408, 409, 425, 429, 500, 502, 503, 504}:
+            return True
+
+        if isinstance(error, (TimeoutError, ConnectionError, OSError)):
+            return True
+
+        message = str(error).casefold()
+        return any(
+            marker in message
+            for marker in (
+                "temporar",
+                "rate limit",
+                "too many requests",
+                "service unavailable",
+                "connection reset",
+                "connection refused",
+                "timed out",
+                "timeout",
+                "try again",
+            )
+        )
+
     @classmethod
     def _keyword_matches(cls, text: str, keyword: str) -> bool:
         if " " in keyword or "-" in keyword:
@@ -223,7 +248,10 @@ class MultiAgent:
                 agent = RemoteA2ASpecialist(
                     agent_type=agent_type,
                     url=remote_url,
-                    api_key=settings.a2a_api_key,
+                    api_key=settings.a2a_specialist_api_keys.get(
+                        agent_type,
+                        settings.a2a_api_key,
+                    ),
                 )
             else:
                 factory = self.agent_factories.get(agent_type)
@@ -328,6 +356,7 @@ class MultiAgent:
                 "status": "error",
                 "content": f"Specialist failed: {exc}",
                 "attempts": 1,
+                "retryable": self._is_retryable_exception(exc),
             }
             if trace:
                 trace.record(
@@ -353,6 +382,15 @@ class MultiAgent:
             outcome.setdefault("agent", agent_type)
             outcome.setdefault("status", "error")
             outcome["content"] = str(outcome.get("content", "")).strip()
+            if outcome["status"] == "error":
+                outcome["retryable"] = bool(
+                    outcome.get("retryable", False)
+                    or self._is_retryable_exception(
+                        RuntimeError(outcome["content"])
+                    )
+                )
+            else:
+                outcome["retryable"] = False
             outcome["attempts"] = 1
 
         if trace:
@@ -396,16 +434,22 @@ class MultiAgent:
 
             outcome["attempts"] = attempt + 1
 
-            if outcome["status"] != "error":
+            if outcome["status"] != "error" or not outcome.get("retryable", False):
                 return outcome
             if attempt >= self.specialist_max_retries:
                 return outcome
+
+            backoff = self.specialist_retry_backoff_seconds * (2**attempt)
+            if backoff > 0:
+                time.sleep(backoff)
+
             if trace:
                 trace.record(
                     "specialist_retry",
                     agent_type,
                     "retrying",
                     attempt=attempt + 1,
+                    details={"backoff_seconds": backoff},
                 )
 
         return {
@@ -413,6 +457,7 @@ class MultiAgent:
             "status": "error",
             "content": "Specialist failed after retries.",
             "attempts": self.specialist_max_retries + 1,
+            "retryable": False,
         }
 
     def _synthesize_with_timeout(
