@@ -382,3 +382,48 @@ def test_task_history_is_bounded():
         assert len(stored.history or []) <= settings.a2a_max_task_history_messages
 
     asyncio.run(scenario())
+
+
+def test_interrupted_active_task_is_failed_on_manager_restart(tmp_path):
+    async def scenario():
+        db_path = str(tmp_path / "tasks.db")
+        store = SQLiteTaskStore(db_path)
+
+        agent = FakeAgent(
+            {
+                "status": "completed",
+                "is_task_complete": True,
+                "require_user_input": False,
+                "content": "done",
+            }
+        )
+        manager = AgentTaskManager(
+            agent,
+            FakeNotificationAuth(),
+            store=store,
+        )
+        request = make_request("stale-task")
+        await manager.get_or_create_task(request.params)
+        task = await manager.get_stored_task("stale-task")
+        assert task is not None
+
+        await manager.update_store(
+            "stale-task",
+            TaskStatus(state=TaskState.WORKING),
+            [],
+        )
+        store.close()
+
+        restarted = AgentTaskManager(
+            agent,
+            FakeNotificationAuth(),
+            store=SQLiteTaskStore(db_path),
+        )
+        recovered = await restarted.get_stored_task("stale-task")
+
+        assert recovered is not None
+        assert recovered.status.state == TaskState.FAILED
+        assert recovered.status.message is not None
+        assert "server restart" in recovered.status.message.parts[0].text.lower()
+
+    asyncio.run(scenario())
