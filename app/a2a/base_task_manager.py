@@ -6,6 +6,7 @@ from collections.abc import AsyncIterable
 
 from app.a2a.models import (
     Artifact,
+    Message,
     CancelTaskRequest,
     CancelTaskResponse,
     GetTaskPushNotificationRequest,
