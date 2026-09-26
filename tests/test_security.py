@@ -27,6 +27,7 @@ def test_api_key_uses_bearer_auth(monkeypatch):
         "settings",
         SimpleNamespace(
             a2a_api_key="secret",
+            a2a_cors_origins=(),
             a2a_rate_limit_per_minute=60,
             a2a_max_request_body_bytes=1000000,
         ),
@@ -45,6 +46,7 @@ def test_oversized_request_is_rejected_before_jsonrpc_dispatch(monkeypatch):
         "settings",
         SimpleNamespace(
             a2a_api_key="",
+            a2a_cors_origins=(),
             a2a_rate_limit_per_minute=60,
             a2a_max_request_body_bytes=64,
         ),
