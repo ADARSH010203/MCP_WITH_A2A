@@ -127,6 +127,11 @@ class Settings:
         4000,
         minimum=100,
     )
+    a2a_memory_retention_days: int = _env_int(
+        "A2A_MEMORY_RETENTION_DAYS",
+        30,
+        minimum=0,
+    )
     a2a_specialist_timeout_seconds: float = _env_float(
         "A2A_SPECIALIST_TIMEOUT_SECONDS",
         45.0,

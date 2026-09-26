@@ -27,7 +27,24 @@ class BaseAgent:
     def _memory_context(self, session_id: str) -> str:
         return self.memory_store.format_context(session_id, self.memory_agent_type)
 
-    def _prepare_query(self, query: str, session_id: str) -> str:
+    def _has_active_history(self, config: dict[str, dict[str, str]]) -> bool:
+        try:
+            state = self.graph.get_state(config)
+        except Exception:
+            return False
+        return bool(state.values.get("messages"))
+
+    def _prepare_query(
+        self,
+        query: str,
+        session_id: str,
+        config: dict[str, dict[str, str]],
+    ) -> str:
+        # Only restore SQLite memory when the in-process checkpointer has no history.
+        # This avoids injecting the same conversation twice during a live session.
+        if self._has_active_history(config):
+            return query
+
         context = self._memory_context(session_id)
         if not context:
             return query
@@ -52,6 +69,7 @@ class BaseAgent:
             settings.a2a_memory_db_path,
             max_turns=settings.a2a_memory_turns,
             max_chars=settings.a2a_memory_max_chars,
+            retention_days=settings.a2a_memory_retention_days,
         )
         self.model = ChatGroq(model=settings.groq_model, max_tokens=2048)
         self.memory = MemorySaver()
@@ -68,7 +86,7 @@ class BaseAgent:
 
     def invoke(self, query: str, session_id: str) -> dict[str, Any]:
         config = self._config(session_id)
-        prepared_query = self._prepare_query(query, session_id)
+        prepared_query = self._prepare_query(query, session_id, config)
         self.graph.invoke({"messages": [("user", prepared_query)]}, config)
         response = self.get_agent_response(config)
         self._remember(session_id, query, response)
