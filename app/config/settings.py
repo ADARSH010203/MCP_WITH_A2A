@@ -52,6 +52,7 @@ class Settings:
     a2a_public_url: str = os.getenv("A2A_PUBLIC_URL", "")
     a2a_cors_origins: tuple[str, ...] = field(default_factory=tuple, init=False)
     a2a_specialist_urls: dict[str, str] = field(default_factory=dict, init=False)
+    a2a_specialist_api_keys: dict[str, str] = field(default_factory=dict, init=False)
     a2a_remote_connect_timeout_seconds: float = _env_float(
         "A2A_REMOTE_CONNECT_TIMEOUT_SECONDS",
         10.0,
@@ -142,6 +143,11 @@ class Settings:
         1,
         minimum=0,
     )
+    a2a_specialist_retry_backoff_seconds: float = _env_float(
+        "A2A_SPECIALIST_RETRY_BACKOFF_SECONDS",
+        0.25,
+        minimum=0.0,
+    )
     a2a_max_agent_calls_per_task: int = _env_int(
         "A2A_MAX_AGENT_CALLS_PER_TASK",
         6,
@@ -193,6 +199,35 @@ def _load_specialist_urls() -> dict[str, str]:
     return result
 
 
+def _load_specialist_api_keys() -> dict[str, str]:
+    raw = os.getenv("A2A_SPECIALIST_API_KEYS", "")
+    if not raw.strip():
+        return {}
+
+    result: dict[str, str] = {}
+    for entry in raw.split(";"):
+        item = entry.strip()
+        if not item:
+            continue
+        if "=" not in item:
+            raise ValueError(
+                "A2A_SPECIALIST_API_KEYS entries must use agent_type=key format"
+            )
+
+        agent_type, api_key = (part.strip() for part in item.split("=", 1))
+        if not agent_type or not api_key:
+            raise ValueError(
+                "A2A_SPECIALIST_API_KEYS entries must contain a non-empty agent type and key"
+            )
+        if agent_type in result:
+            raise ValueError(
+                f"A2A_SPECIALIST_API_KEYS contains duplicate agent type: {agent_type}"
+            )
+        result[agent_type] = api_key
+
+    return result
+
+
 def _load_cors_origins() -> tuple[str, ...]:
     raw = os.getenv("A2A_CORS_ORIGINS", "")
     return tuple(origin.strip() for origin in raw.split(",") if origin.strip())
@@ -200,4 +235,5 @@ def _load_cors_origins() -> tuple[str, ...]:
 
 settings = Settings()
 object.__setattr__(settings, "a2a_specialist_urls", _load_specialist_urls())
+object.__setattr__(settings, "a2a_specialist_api_keys", _load_specialist_api_keys())
 object.__setattr__(settings, "a2a_cors_origins", _load_cors_origins())
