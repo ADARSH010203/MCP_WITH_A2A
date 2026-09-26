@@ -627,3 +627,26 @@ def test_clear_cross_domain_signal_still_enables_collaboration():
     assert "deep_learning" in selected
     assert "code" in selected
     assert len(selected) == 2
+
+
+def test_conflict_failures_are_not_retried():
+    agents = fake_agents()
+
+    class ConflictAgent(FakeAgent):
+        def invoke(self, query: str, session_id: str) -> dict:
+            self.calls.append((query, session_id))
+            raise RemoteConflict()
+
+    class RemoteConflict(Exception):
+        status_code = 409
+
+    agents["code"] = ConflictAgent("code")
+    router = MultiAgent(agents=agents)
+    router.specialist_max_retries = 2
+    router.specialist_retry_backoff_seconds = 0
+
+    result = router.invoke("Write Python code", "session-conflict")
+
+    assert result["status"] == "error"
+    assert result["attempts"] == 1
+    assert len(agents["code"].calls) == 1
