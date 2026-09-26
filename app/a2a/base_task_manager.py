@@ -91,6 +91,10 @@ class InMemoryTaskManager(TaskManager):
         self.task_sse_subscribers: dict[str, list[asyncio.Queue]] = {}
         self.subscriber_lock = asyncio.Lock()
 
+    def is_ready(self) -> bool:
+        """Return whether the durable task store is reachable."""
+        return self.store.ping()
+
     async def get_stored_task(self, task_id: str) -> Task | None:
         """Return a stored task without changing its state."""
         async with self.lock:
