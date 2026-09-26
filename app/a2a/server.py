@@ -130,6 +130,15 @@ class A2AServer:
 
     async def _readiness_check(self, _request: Request) -> JSONResponse:
         ready = self.task_manager is not None and self.agent_card is not None
+        if ready:
+            readiness_check = getattr(self.task_manager, "is_ready", None)
+            if readiness_check is not None:
+                try:
+                    ready = bool(readiness_check())
+                except Exception:
+                    logging.getLogger(__name__).exception("A2A readiness check failed")
+                    ready = False
+
         return JSONResponse(
             {"status": "ready" if ready else "not_ready"},
             status_code=200 if ready else 503,
@@ -214,11 +223,8 @@ class A2AServer:
         try:
             if settings.a2a_api_key:
                 authorization = request.headers.get("Authorization", "")
-                presented = (
-                    authorization[len("Bearer ") :]
-                    if authorization.startswith("Bearer ")
-                    else ""
-                )
+                scheme, _, credentials = authorization.partition(" ")
+                presented = credentials.strip() if scheme.casefold() == "bearer" else ""
                 if not secrets.compare_digest(presented, settings.a2a_api_key):
                     return JSONResponse(
                         JSONRPCResponse(
@@ -236,6 +242,18 @@ class A2AServer:
                     ).model_dump(exclude_none=True),
                     status_code=429,
                     headers={"Retry-After": "60"},
+                )
+
+            content_type = request.headers.get("Content-Type", "").split(";", 1)[0].strip().casefold()
+            if content_type != "application/json":
+                return JSONResponse(
+                    JSONRPCResponse(
+                        id=None,
+                        error=InvalidRequestError(
+                            message="Content-Type must be application/json"
+                        ),
+                    ).model_dump(exclude_none=True),
+                    status_code=415,
                 )
 
             body_bytes = await self._read_request_body(request)
