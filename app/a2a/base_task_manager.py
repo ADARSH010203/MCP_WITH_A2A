@@ -278,6 +278,9 @@ class InMemoryTaskManager(TaskManager):
                     task.artifacts = []
                 task.artifacts.extend(artifacts)
 
+            if task.history and len(task.history) > settings.a2a_max_task_history_messages:
+                task.history = task.history[-settings.a2a_max_task_history_messages :]
+
             self.store.save_task(task)
             return task
 
@@ -285,7 +288,8 @@ class InMemoryTaskManager(TaskManager):
         new_task = task.model_copy()
         history = new_task.history or []
         if historyLength is not None and historyLength > 0:
-            new_task.history = history[-historyLength:]
+            bounded_length = min(historyLength, settings.a2a_max_task_history_messages)
+            new_task.history = history[-bounded_length:]
         else:
             new_task.history = []
 
