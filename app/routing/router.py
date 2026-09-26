@@ -143,7 +143,7 @@ class MultiAgent:
     @staticmethod
     def _is_retryable_exception(error: Exception) -> bool:
         status_code = getattr(error, "status_code", None)
-        if status_code in {408, 409, 425, 429, 500, 502, 503, 504}:
+        if status_code in {408, 425, 429, 500, 502, 503, 504}:
             return True
 
         if isinstance(error, (TimeoutError, ConnectionError, OSError)):
