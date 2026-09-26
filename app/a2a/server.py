@@ -166,6 +166,48 @@ class A2AServer:
             timestamps.append(now)
             return False
 
+    async def _read_request_body(self, request: Request) -> bytes | JSONResponse:
+        """Read the request body without buffering beyond the configured limit."""
+        limit = settings.a2a_max_request_body_bytes
+        content_length = request.headers.get("content-length")
+
+        if content_length is not None:
+            try:
+                if int(content_length) > limit:
+                    return JSONResponse(
+                        JSONRPCResponse(
+                            id=None,
+                            error=InvalidRequestError(
+                                message="Request body exceeds the configured size limit"
+                            ),
+                        ).model_dump(exclude_none=True),
+                        status_code=413,
+                    )
+            except ValueError:
+                return JSONResponse(
+                    JSONRPCResponse(
+                        id=None,
+                        error=InvalidRequestError(message="Invalid Content-Length header"),
+                    ).model_dump(exclude_none=True),
+                    status_code=400,
+                )
+
+        body = bytearray()
+        async for chunk in request.stream():
+            if len(body) + len(chunk) > limit:
+                return JSONResponse(
+                    JSONRPCResponse(
+                        id=None,
+                        error=InvalidRequestError(
+                            message="Request body exceeds the configured size limit"
+                        ),
+                    ).model_dump(exclude_none=True),
+                    status_code=413,
+                )
+            body.extend(chunk)
+
+        return bytes(body)
+
     async def _process_request(
         self, request: Request
     ) -> JSONResponse | EventSourceResponse:
@@ -196,44 +238,11 @@ class A2AServer:
                     headers={"Retry-After": "60"},
                 )
 
-            content_length = request.headers.get("content-length")
-            if content_length is not None:
-                try:
-                    if int(content_length) > settings.a2a_max_request_body_bytes:
-                        return JSONResponse(
-                            JSONRPCResponse(
-                                id=None,
-                                error=InvalidRequestError(
-                                    message="Request body exceeds the configured size limit"
-                                ),
-                            ).model_dump(exclude_none=True),
-                            status_code=413,
-                        )
-                except ValueError:
-                    return JSONResponse(
-                        JSONRPCResponse(
-                            id=None,
-                            error=InvalidRequestError(message="Invalid Content-Length header"),
-                        ).model_dump(exclude_none=True),
-                        status_code=400,
-                    )
+            body_bytes = await self._read_request_body(request)
+            if isinstance(body_bytes, JSONResponse):
+                return body_bytes
 
-            body_bytes = await request.body()
-            if len(body_bytes) > settings.a2a_max_request_body_bytes:
-                return JSONResponse(
-                    JSONRPCResponse(
-                        id=None,
-                        error=InvalidRequestError(
-                            message="Request body exceeds the configured size limit"
-                        ),
-                    ).model_dump(exclude_none=True),
-                    status_code=413,
-                )
-
-            try:
-                body = json.loads(body_bytes)
-            except json.JSONDecodeError:
-                raise
+            body = json.loads(body_bytes)
 
             rpc_request = A2ARequest.validate_python(body)
 
