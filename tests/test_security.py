@@ -93,3 +93,47 @@ def test_chunked_body_is_bounded():
 
     response = asyncio.run(server._read_request_body(FakeRequest()))
     assert response.status_code == 413
+
+
+def test_bearer_scheme_is_case_insensitive(monkeypatch):
+    monkeypatch.setattr(
+        server_module,
+        "settings",
+        SimpleNamespace(
+            a2a_api_key="secret",
+            a2a_rate_limit_per_minute=60,
+            a2a_max_request_body_bytes=1000000,
+        ),
+    )
+    server = A2AServer()
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/",
+        json={"jsonrpc": "2.0", "id": 1, "method": "tasks/get", "params": {"id": "x"}},
+        headers={"Authorization": "bearer secret"},
+    )
+
+    assert response.status_code != 401
+
+
+def test_non_json_content_type_is_rejected(monkeypatch):
+    monkeypatch.setattr(
+        server_module,
+        "settings",
+        SimpleNamespace(
+            a2a_api_key="",
+            a2a_rate_limit_per_minute=60,
+            a2a_max_request_body_bytes=1000000,
+        ),
+    )
+    server = A2AServer()
+    client = TestClient(server.app)
+
+    response = client.post(
+        "/",
+        content=b"{}",
+        headers={"Content-Type": "text/plain"},
+    )
+
+    assert response.status_code == 415
