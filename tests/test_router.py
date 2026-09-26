@@ -589,3 +589,41 @@ def test_parallel_specialist_exception_is_isolated():
     by_agent = {item["agent"]: item for item in outcomes}
     assert by_agent["code"]["status"] == "error"
     assert by_agent["deep_learning"]["status"] == "completed"
+
+
+def test_routes_common_natural_language_requests():
+    router = MultiAgent(fake_agents())
+
+    cases = {
+        "Can you convert 100 dollars to euros?": "currency",
+        "Please write an email asking for leave.": "email",
+        "Create an image of a mountain at sunset.": "image",
+        "I am designing a video game level.": "game",
+        "Explain machine learning model training.": "deep_learning",
+        "What is the time complexity of this LeetCode solution?": "dsa",
+        "Please write source code for this API.": "code",
+    }
+    for query, expected in cases.items():
+        assert router._detect_agent_type(router_message(query)) == expected
+
+
+def test_weak_secondary_match_does_not_trigger_unnecessary_collaboration():
+    router = MultiAgent(fake_agents())
+
+    selected = router.select_agent_types(
+        "Explain a Python package that converts USD identifiers."
+    )
+
+    assert selected == ["code"]
+
+
+def test_clear_cross_domain_signal_still_enables_collaboration():
+    router = MultiAgent(fake_agents())
+
+    selected = router.select_agent_types(
+        "Build a Python CNN image classification pipeline."
+    )
+
+    assert "deep_learning" in selected
+    assert "code" in selected
+    assert len(selected) == 2
