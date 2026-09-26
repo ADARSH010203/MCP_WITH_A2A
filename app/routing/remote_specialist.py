@@ -30,6 +30,11 @@ class RemoteA2ASpecialist:
     def agent_card(self) -> AgentCard | None:
         return self._agent_card
 
+    @staticmethod
+    def _is_retryable_error(error: Exception) -> bool:
+        status_code = getattr(error, "status_code", None)
+        return status_code in {408, 409, 425, 429, 500, 502, 503, 504}
+
     def _ensure_client(self) -> A2AClient:
         if self._client is not None:
             return self._client
@@ -143,6 +148,7 @@ class RemoteA2ASpecialist:
                     "execution_mode": "remote-a2a",
                     "remote_url": self.url,
                     "remote_task_id": task_id,
+                    "retryable": False,
                 }
 
             task = response.result
@@ -193,6 +199,7 @@ class RemoteA2ASpecialist:
                 "execution_mode": "remote-a2a",
                 "remote_url": self.url,
                 "remote_task_id": task_id,
+                "retryable": self._is_retryable_error(exc),
             }
 
     async def stream(
@@ -278,4 +285,5 @@ class RemoteA2ASpecialist:
                 "execution_mode": "remote-a2a",
                 "remote_url": self.url,
                 "remote_task_id": task_id,
+                "retryable": self._is_retryable_error(exc),
             }
