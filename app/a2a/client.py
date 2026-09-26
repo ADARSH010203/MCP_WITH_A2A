@@ -68,7 +68,7 @@ class A2AClient:
         request = SendTaskStreamingRequest(params=payload)
         timeout = httpx.Timeout(
             connect=settings.a2a_remote_connect_timeout_seconds,
-            read=None,
+            read=self.request_timeout_seconds,
             write=self.request_timeout_seconds,
             pool=self.request_timeout_seconds,
         )

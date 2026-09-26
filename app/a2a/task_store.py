@@ -43,6 +43,15 @@ class SQLiteTaskStore:
             )
             self.connection.commit()
 
+    def ping(self) -> bool:
+        """Check that the task database connection is usable."""
+        try:
+            with self._lock:
+                self.connection.execute("SELECT 1").fetchone()
+            return True
+        except sqlite3.Error:
+            return False
+
     def load_tasks(self) -> dict[str, Task]:
         with self._lock:
             rows = self.connection.execute(

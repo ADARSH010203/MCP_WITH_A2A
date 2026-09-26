@@ -22,7 +22,11 @@ class A2ACardResolver:
         )
 
     def get_agent_card(self) -> AgentCard:
-        with httpx.Client() as client:
+        timeout = httpx.Timeout(
+            settings.a2a_remote_request_timeout_seconds,
+            connect=settings.a2a_remote_connect_timeout_seconds,
+        )
+        with httpx.Client(timeout=timeout) as client:
             headers = (
                 {"Authorization": f"Bearer {self.api_key}"}
                 if self.api_key
@@ -31,7 +35,7 @@ class A2ACardResolver:
             response = client.get(
                 self.base_url + "/" + self.agent_card_path,
                 headers=headers,
-                timeout=10,
+                timeout=timeout,
             )
             response.raise_for_status()
             try:
