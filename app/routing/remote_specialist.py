@@ -1,6 +1,7 @@
 """Remote specialist adapter that speaks A2A to an independent agent service."""
 
 import asyncio
+from urllib.parse import urlparse
 from collections.abc import AsyncIterable
 from typing import Any
 from uuid import uuid4
@@ -41,6 +42,20 @@ class RemoteA2ASpecialist:
         if not card.skills:
             raise ValueError(
                 f"Remote agent '{self.agent_type}' returned an Agent Card without skills."
+            )
+
+        configured = urlparse(self.url)
+        advertised = urlparse(card.url)
+        if (
+            advertised.scheme not in {"http", "https"}
+            or advertised.username
+            or advertised.password
+            or advertised.scheme != configured.scheme
+            or advertised.netloc != configured.netloc
+        ):
+            raise ValueError(
+                f"Remote agent '{self.agent_type}' returned an Agent Card URL "
+                "outside the configured service origin."
             )
 
         self._agent_card = card
