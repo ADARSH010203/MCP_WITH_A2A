@@ -699,6 +699,40 @@ class MultiAgent:
             trace=trace,
         )
 
+    def _run_specialist_safely(
+        self,
+        agent_type: str,
+        query: str,
+        session_id: str,
+        upstream_findings: list[dict[str, Any]] | None = None,
+        budget: CallBudget | None = None,
+        trace: CollaborationTrace | None = None,
+    ) -> dict[str, Any]:
+        try:
+            return self._run_specialist(
+                agent_type,
+                query,
+                session_id,
+                upstream_findings,
+                budget,
+                trace,
+            )
+        except Exception as exc:
+            if trace:
+                trace.record(
+                    "specialist_completed",
+                    agent_type,
+                    "error",
+                    details={"error": str(exc), "unexpected": True},
+                )
+            return {
+                "agent": agent_type,
+                "status": "error",
+                "content": f"Specialist failed unexpectedly: {exc}",
+                "attempts": 1,
+                "retryable": self._is_retryable_exception(exc),
+            }
+
     def _run_parallel_specialists(
         self,
         agent_types: list[str],
@@ -719,7 +753,7 @@ class MultiAgent:
         ) as executor:
             futures = [
                 executor.submit(
-                    self._run_specialist,
+                    self._run_specialist_safely,
                     agent_type,
                     query,
                     session_id,
@@ -1030,7 +1064,7 @@ class MultiAgent:
                 tasks = [
                     asyncio.create_task(
                         asyncio.to_thread(
-                            self._run_specialist,
+                            self._run_specialist_safely,
                             step.agent,
                             query,
                             session_id,
@@ -1078,7 +1112,7 @@ class MultiAgent:
                     details={"upstream": [item["agent"] for item in upstream]},
                 )
                 outcome = await asyncio.to_thread(
-                    self._run_specialist,
+                    self._run_specialist_safely,
                     step.agent,
                     query,
                     session_id,
