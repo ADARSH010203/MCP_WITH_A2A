@@ -77,3 +77,19 @@ def test_task_identifiers_have_bounded_length():
         pass
     else:
         raise AssertionError("Expected an oversized task ID to be rejected")
+
+
+import asyncio
+
+
+def test_chunked_body_is_bounded():
+    server = A2AServer()
+
+    class FakeRequest:
+        headers = {}
+
+        async def stream(self):
+            yield b"x" * 1_000_001
+
+    response = asyncio.run(server._read_request_body(FakeRequest()))
+    assert response.status_code == 413
