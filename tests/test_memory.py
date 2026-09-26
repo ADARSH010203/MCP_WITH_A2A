@@ -105,3 +105,22 @@ def test_memory_retention_removes_expired_records(tmp_path):
     assert memory.recent("expired", "code") == []
     assert memory.recent("fresh", "code") == [("user", "keep this")]
     memory.close()
+
+
+def test_agent_does_not_duplicate_sqlite_context_during_active_session(tmp_path):
+    from types import SimpleNamespace
+
+    from app.agents.base import BaseAgent
+
+    class ActiveGraph:
+        def get_state(self, _config):
+            return SimpleNamespace(values={"messages": [{"role": "user", "content": "old"}]})
+
+    agent = BaseAgent.__new__(BaseAgent)
+    agent.graph = ActiveGraph()
+    agent.memory_store = SQLiteConversationMemory(str(tmp_path / "memory.db"))
+
+    assert agent._prepare_query("new request", "s", {"configurable": {"thread_id": "s"}}) == (
+        "new request"
+    )
+    agent.memory_store.close()
