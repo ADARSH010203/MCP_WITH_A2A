@@ -124,3 +124,9 @@ def test_agent_does_not_duplicate_sqlite_context_during_active_session(tmp_path)
         "new request"
     )
     agent.memory_store.close()
+
+
+def test_task_store_ping(tmp_path):
+    store = SQLiteTaskStore(str(tmp_path / "tasks.db"))
+    assert store.ping() is True
+    store.close()
