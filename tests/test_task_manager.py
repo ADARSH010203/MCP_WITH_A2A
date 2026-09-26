@@ -355,7 +355,7 @@ def test_task_history_is_bounded():
             FakeNotificationAuth(),
             store=SQLiteTaskStore(":memory:"),
         )
-        await manager.get_or_create_task(make_request("history-cap"))
+        await manager.get_or_create_task(make_request("history-cap").params)
         for index in range(130):
             await manager.update_store(
                 "history-cap",
