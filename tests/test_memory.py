@@ -65,3 +65,43 @@ def test_task_store_reopens_with_same_task_data(tmp_path):
     loaded = reopened.load_tasks()
     assert loaded["task-1"].status.state == TaskState.COMPLETED
     reopened.close()
+
+
+def test_memory_redacts_common_credentials(tmp_path):
+    memory = SQLiteConversationMemory(str(tmp_path / "memory.db"))
+    memory.append(
+        "s",
+        "code",
+        "user",
+        "Authorization: Bearer super-secret-token api_key=top-secret",
+    )
+
+    stored = memory.recent("s", "code")[0][1]
+    assert "super-secret-token" not in stored
+    assert "top-secret" not in stored
+    assert "<redacted>" in stored
+    memory.close()
+
+
+def test_memory_retention_removes_expired_records(tmp_path):
+    memory = SQLiteConversationMemory(
+        str(tmp_path / "memory.db"),
+        retention_days=1,
+    )
+    memory.append("fresh", "code", "user", "keep this")
+
+    memory.connection.execute(
+        "UPDATE conversation_turns SET created_at = ? WHERE session_id = ?",
+        ("2000-01-01T00:00:00+00:00", "expired"),
+    )
+    memory.append("expired", "code", "user", "remove this")
+    memory.connection.execute(
+        "UPDATE conversation_turns SET created_at = ? WHERE session_id = ?",
+        ("2000-01-01T00:00:00+00:00", "expired"),
+    )
+    memory.connection.commit()
+
+    assert memory.purge_expired() == 1
+    assert memory.recent("expired", "code") == []
+    assert memory.recent("fresh", "code") == [("user", "keep this")]
+    memory.close()
