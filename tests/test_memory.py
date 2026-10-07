@@ -78,7 +78,7 @@ def test_memory_redacts_common_credentials(tmp_path):
         "Authorization: Bearer super-secret-token api_key=top-secret",
     )
 
-    stored = memory.recent("s", "code")[0][1]
+    stored = memory.recent("tenant-a", "s", "code")[0][1]
     assert "super-secret-token" not in stored
     assert "top-secret" not in stored
     assert "<redacted>" in stored
@@ -93,9 +93,14 @@ def test_memory_retention_removes_expired_records(tmp_path):
     )
     memory.append("tenant-a", "fresh", "code", "user", "keep this")
 
+    expired_scope = memory._scope(
+        "tenant-a",
+        "expired",
+        "code",
+    ).session_key(memory.namespace_secret)
     memory.connection.execute(
-        "UPDATE conversation_turns SET created_at = ? WHERE session_id = ?",
-        ("2000-01-01T00:00:00+00:00", "expired"),
+        "UPDATE conversation_turns SET created_at = ? WHERE session_scope_key = ?",
+        ("2000-01-01T00:00:00+00:00", expired_scope),
     )
     memory.append("tenant-a", "expired", "code", "user", "remove this")
     memory.connection.execute(
