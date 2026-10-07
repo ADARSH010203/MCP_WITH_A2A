@@ -1,5 +1,9 @@
 [tool.pytest.ini_options]
 pythonpath = ["."]
+markers = [
+    "integration: tests that exercise multiple application boundaries",
+    "safety: security and abuse-resistance gate tests",
+]
 
 [tool.ruff]
 line-length = 100
