@@ -48,6 +48,25 @@ class Settings:
         "GROQ_MODEL",
         "meta-llama/llama-4-scout-17b-16e-instruct",
     )
+    a2a_semantic_routing_enabled: bool = _env_bool(
+        "A2A_SEMANTIC_ROUTING_ENABLED",
+        True,
+    )
+    a2a_semantic_routing_min_score: float = _env_float(
+        "A2A_SEMANTIC_ROUTING_MIN_SCORE",
+        0.58,
+        minimum=0.0,
+    )
+    a2a_semantic_routing_secondary_score: float = _env_float(
+        "A2A_SEMANTIC_ROUTING_SECONDARY_SCORE",
+        0.72,
+        minimum=0.0,
+    )
+    a2a_semantic_routing_max_agents: int = _env_int(
+        "A2A_SEMANTIC_ROUTING_MAX_AGENTS",
+        3,
+        minimum=1,
+    )
     mcp_url: str = os.getenv("MCP_URL", "http://127.0.0.1:3000/sse")
     a2a_public_url: str = os.getenv("A2A_PUBLIC_URL", "")
     a2a_cors_origins: tuple[str, ...] = field(default_factory=tuple, init=False)
