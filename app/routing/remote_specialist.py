@@ -40,7 +40,7 @@ class RemoteA2ASpecialist:
 
     @staticmethod
     def _is_retryable_rpc_error(error: Any) -> bool:
-        return getattr(error, "code", None) in {-32603, -32003}
+        return getattr(error, "code", None) == -32603
 
     def _validate_remote_origin(self) -> None:
         parsed = urlparse(self.url)
