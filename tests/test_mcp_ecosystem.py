@@ -145,9 +145,9 @@ def test_tool_allowlist_rejects_unknown_names(monkeypatch):
     import app.mcp.server as server_module
 
     monkeypatch.setattr(
-        server_module.settings,
-        "mcp_allowed_tools",
-        ("does-not-exist",),
+        server_module,
+        "settings",
+        SimpleNamespace(mcp_allowed_tools=("does-not-exist",)),
     )
     with pytest.raises(ValueError, match="Unsupported MCP tools"):
         server_module._build_tool_registry()
@@ -157,9 +157,11 @@ def test_tool_allowlist_filters_catalog(monkeypatch):
     import app.mcp.server as server_module
 
     monkeypatch.setattr(
-        server_module.settings,
-        "mcp_allowed_tools",
-        ("calculate", "list_tool_catalog"),
+        server_module,
+        "settings",
+        SimpleNamespace(
+            mcp_allowed_tools=("calculate", "list_tool_catalog")
+        ),
     )
 
     registry = server_module._build_tool_registry()
