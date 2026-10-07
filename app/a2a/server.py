@@ -76,7 +76,7 @@ class A2AServer:
             version="1.0.0",
         )
         self.app.add_middleware(SecurityHeadersMiddleware)
-        if settings.a2a_cors_origins:
+        if getattr(settings, "a2a_cors_origins", ()):
             self.app.add_middleware(
                 CORSMiddleware,
                 allow_origins=list(settings.a2a_cors_origins),

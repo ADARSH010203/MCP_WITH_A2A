@@ -13,6 +13,8 @@ from pydantic import (
 )
 from typing_extensions import Self
 
+from app.config.settings import settings
+
 
 class TaskState(str, Enum):
     SUBMITTED = "submitted"
@@ -308,6 +310,12 @@ class ContentTypeNotSupportedError(JSONRPCError):
     code: int = -32005
     message: str = "Incompatible content types"
     data: None = None
+
+
+class RateLimitError(JSONRPCError):
+    code: int = -32029
+    message: str = "Rate limit exceeded"
+    data: Any | None = None
 
 
 class AgentProvider(BaseModel):

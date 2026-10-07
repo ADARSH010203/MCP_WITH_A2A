@@ -55,7 +55,7 @@ def test_format_report_surfaces_metrics_and_failures():
             BenchmarkCase(
                 name="intentional_failure",
                 query="Explain CNNs.",
-                expected_agents=("code",),
+                expected_agents=("currency",),
                 expected_mode="single-agent",
             )
         ],

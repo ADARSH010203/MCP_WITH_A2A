@@ -22,6 +22,7 @@ from app.config.settings import settings
 from app.routing.planner import CollaborationPlan, CollaborationPlanner
 from app.routing.registry import DEFAULT_AGENT_REGISTRY
 from app.routing.remote_specialist import RemoteA2ASpecialist
+from app.routing.semantic import SemanticRouter, SemanticRoutingError
 from app.routing.tracing import CollaborationTrace
 
 
@@ -98,6 +99,7 @@ class MultiAgent:
         critic_factory: CriticFactory = CriticAgent,
         planner: CollaborationPlanner | None = None,
         remote_specialist_urls: dict[str, str] | None = None,
+        semantic_router: SemanticRouter | None = None,
     ) -> None:
         self.agents = agents if agents is not None else {}
         self.agent_factories = (
@@ -108,6 +110,22 @@ class MultiAgent:
         self.critic = critic
         self.critic_factory = critic_factory
         self.planner = planner or CollaborationPlanner()
+        self.semantic_router = semantic_router or SemanticRouter(
+            self.AGENT_REGISTRY,
+            model_name=getattr(
+                settings,
+                "groq_model",
+                "meta-llama/llama-4-scout-17b-16e-instruct",
+            ),
+            enabled=getattr(settings, "a2a_semantic_routing_enabled", True),
+            min_score=getattr(settings, "a2a_semantic_routing_min_score", 0.58),
+            secondary_score=getattr(
+                settings,
+                "a2a_semantic_routing_secondary_score",
+                0.72,
+            ),
+            max_agents=getattr(settings, "a2a_semantic_routing_max_agents", 3),
+        )
         self.max_collaborative_agents = max(1, settings.a2a_max_collaborative_agents)
         self.remote_specialist_urls = dict(
             settings.a2a_specialist_urls
@@ -192,13 +210,22 @@ class MultiAgent:
         query: str,
         max_agents: int | None = None,
     ) -> list[str]:
-        """Select one specialist or a small set of specialists for collaboration."""
+        """Select specialists using deterministic matching with semantic fallback."""
         text = self._normalize(query)
         scores = self._score_agent_types(text)
         limit = max(1, max_agents or self.max_collaborative_agents)
 
         if not scores:
-            return ["code"]
+            try:
+                selected = self.semantic_router.select(
+                    text,
+                    max_agents=limit,
+                )
+                return selected[:limit] or ["code"]
+            except SemanticRoutingError:
+                # Semantic routing is an enhancement, never a single point of
+                # failure. Preserve the existing deterministic safe default.
+                return ["code"]
 
         ranked = [
             agent_type
