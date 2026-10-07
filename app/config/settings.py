@@ -248,6 +248,11 @@ def _load_specialist_api_keys() -> dict[str, str]:
     return result
 
 
+def _load_allowed_agents() -> tuple[str, ...]:
+    raw = os.getenv("A2A_ALLOWED_AGENTS", "")
+    return tuple(item.strip() for item in raw.split(",") if item.strip())
+
+
 def _load_cors_origins() -> tuple[str, ...]:
     raw = os.getenv("A2A_CORS_ORIGINS", "")
     return tuple(origin.strip() for origin in raw.split(",") if origin.strip())
