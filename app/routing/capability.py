@@ -84,7 +84,7 @@ class CapabilityAuthorizer:
         if unknown:
             names = ", ".join(sorted(unknown))
             raise CapabilityAuthorizationError(
-                f"Unknown selected agents: {names}"
+                f"Unknown agent type: {names}"
             )
 
         unauthorized = set(normalized) - set(self._authorized_agents)
@@ -140,14 +140,16 @@ class CapabilityAuthorizer:
 
         expected = self.registry.get(agent_type).capabilities
         skill_text = " ".join(
-            (
+            str(part)
+            for skill in card.skills
+            for part in (
                 skill.id,
                 skill.name,
                 skill.description or "",
-                " ".join(skill.tags or ()),
-                " ".join(skill.examples or ()),
+                *skill.tags or (),
+                *skill.examples or (),
             )
-            for skill in card.skills
+            if part
         ).casefold()
 
         if not any(
