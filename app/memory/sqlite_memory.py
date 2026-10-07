@@ -36,7 +36,7 @@ def _sanitize_content(content: str) -> str:
 
 
 class SQLiteConversationMemory:
-    """Persist bounded turns keyed by a principal/session/agent scope."""
+    """Persist bounded turns keyed by trusted principal/session/agent scope."""
 
     def __init__(
         self,
@@ -98,11 +98,18 @@ class SQLiteConversationMemory:
             """
             CREATE TABLE IF NOT EXISTS conversation_turns (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_scope_key TEXT NOT NULL,
                 scope_key TEXT NOT NULL,
                 role TEXT NOT NULL,
                 content TEXT NOT NULL,
                 created_at TEXT NOT NULL
             )
+            """
+        )
+        self.connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_conversation_turns_session_scope
+            ON conversation_turns(session_scope_key, id)
             """
         )
         self.connection.execute(
@@ -128,6 +135,7 @@ class SQLiteConversationMemory:
             """
             CREATE TABLE conversation_turns (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_scope_key TEXT NOT NULL,
                 scope_key TEXT NOT NULL,
                 role TEXT NOT NULL,
                 content TEXT NOT NULL,
@@ -143,33 +151,33 @@ class SQLiteConversationMemory:
             """
         ).fetchall()
         for session_id, agent_type, role, content, created_at in rows:
-            scope_key = MemoryScope(
+            scope = MemoryScope(
                 principal_id="legacy",
                 session_id=session_id,
                 agent_type=agent_type,
-            ).key(self.namespace_secret)
+            )
             self.connection.execute(
                 """
                 INSERT INTO conversation_turns
-                    (scope_key, role, content, created_at)
-                VALUES (?, ?, ?, ?)
+                    (session_scope_key, scope_key, role, content, created_at)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (scope_key, role, content, created_at),
+                (
+                    scope.session_key(self.namespace_secret),
+                    scope.key(self.namespace_secret),
+                    role,
+                    content,
+                    created_at,
+                ),
             )
         self.connection.execute(f"DROP TABLE {legacy_name}")
 
-    @staticmethod
-    def _scope_key(
-        principal_id: str,
-        session_id: str,
-        agent_type: str,
-        secret: str,
-    ) -> str:
+    def _scope(self, principal_id: str, session_id: str, agent_type: str) -> MemoryScope:
         return MemoryScope(
             principal_id=principal_id,
             session_id=session_id,
             agent_type=agent_type,
-        ).key(secret)
+        )
 
     def append(
         self,
@@ -184,21 +192,25 @@ class SQLiteConversationMemory:
             return
 
         clean_content = clean_content[: self.max_chars]
-        scope_key = self._scope_key(
-            principal_id,
-            session_id,
-            agent_type,
-            self.namespace_secret,
-        )
+        scope = self._scope(principal_id, session_id, agent_type)
+        session_scope_key = scope.session_key(self.namespace_secret)
+        scope_key = scope.key(self.namespace_secret)
         timestamp = datetime.now(timezone.utc).isoformat()
+
         with self._lock:
             self.connection.execute(
                 """
                 INSERT INTO conversation_turns
-                    (scope_key, role, content, created_at)
-                VALUES (?, ?, ?, ?)
+                    (session_scope_key, scope_key, role, content, created_at)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (scope_key, role, clean_content, timestamp),
+                (
+                    session_scope_key,
+                    scope_key,
+                    role,
+                    clean_content,
+                    timestamp,
+                ),
             )
             self._trim_scope(scope_key)
             self._purge_expired_locked()
@@ -210,12 +222,10 @@ class SQLiteConversationMemory:
         session_id: str,
         agent_type: str,
     ) -> list[tuple[str, str]]:
-        scope_key = self._scope_key(
-            principal_id,
-            session_id,
-            agent_type,
-            self.namespace_secret,
-        )
+        scope_key = self._scope(
+            principal_id, session_id, agent_type
+        ).key(self.namespace_secret)
+
         with self._lock:
             rows = self.connection.execute(
                 """
@@ -227,7 +237,6 @@ class SQLiteConversationMemory:
                 """,
                 (scope_key, self.max_turns),
             ).fetchall()
-
         return list(reversed(rows))
 
     def format_context(
@@ -256,36 +265,25 @@ class SQLiteConversationMemory:
         session_id: str,
         agent_type: str | None = None,
     ) -> int:
-        if agent_type is None:
-            scope_prefix = [
-                self._scope_key(
-                    principal_id,
-                    session_id,
-                    candidate,
-                    self.namespace_secret,
-                )
-                for candidate in settings.memory_agent_types
-            ]
-            placeholders = ",".join("?" for _ in scope_prefix)
-            if not scope_prefix:
-                return 0
-            query = (
-                "DELETE FROM conversation_turns "
-                f"WHERE scope_key IN ({placeholders})"
-            )
-            params = tuple(scope_prefix)
-        else:
-            key = self._scope_key(
-                principal_id,
-                session_id,
-                agent_type,
-                self.namespace_secret,
-            )
-            query = "DELETE FROM conversation_turns WHERE scope_key = ?"
-            params = (key,)
+        scope = self._scope(
+            principal_id,
+            session_id,
+            agent_type or "session",
+        )
 
         with self._lock:
-            cursor = self.connection.execute(query, params)
+            if agent_type is not None:
+                scope_key = scope.key(self.namespace_secret)
+                cursor = self.connection.execute(
+                    "DELETE FROM conversation_turns WHERE scope_key = ?",
+                    (scope_key,),
+                )
+            else:
+                session_scope_key = scope.session_key(self.namespace_secret)
+                cursor = self.connection.execute(
+                    "DELETE FROM conversation_turns WHERE session_scope_key = ?",
+                    (session_scope_key,),
+                )
             self.connection.commit()
             return cursor.rowcount
 
