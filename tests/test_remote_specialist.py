@@ -66,6 +66,30 @@ def completed_task():
     return SimpleNamespace(error=None, result=task)
 
 
+def test_remote_specialist_invokes_capability_validator(monkeypatch):
+    monkeypatch.setattr(
+        "app.routing.remote_specialist.A2ACardResolver",
+        FakeResolver,
+    )
+    monkeypatch.setattr(
+        "app.routing.remote_specialist.A2AClient",
+        lambda **kwargs: FakeClient(),
+    )
+    calls = []
+
+    def validator(agent_type, card):
+        calls.append((agent_type, card.name))
+
+    agent = RemoteA2ASpecialist(
+        agent_type="code",
+        url="http://127.0.0.1:8101",
+        capability_validator=validator,
+    )
+
+    agent._ensure_client()
+    assert calls == [("code", "Code Specialist")]
+
+
 def test_remote_specialist_invokes_through_a2a(monkeypatch, completed_task):
     created_clients = []
 
