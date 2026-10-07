@@ -110,7 +110,7 @@ def test_remote_specialist_invokes_through_a2a(monkeypatch, completed_task):
 
     agent = RemoteA2ASpecialist(
         agent_type="code",
-        url="http://127.0.0.1:8101",
+        url="https://127.0.0.1:8101",
         api_key="secret",
     )
 
@@ -146,7 +146,7 @@ def test_remote_stream_maps_completed_artifact(monkeypatch):
     async def scenario():
         agent = RemoteA2ASpecialist(
             agent_type="code",
-            url="http://127.0.0.1:8101",
+            url="https://127.0.0.1:8101",
         )
         events = [event async for event in agent.stream("Implement this", "session-2")]
 
@@ -198,6 +198,7 @@ def test_remote_specialist_rejects_agent_card_origin_change(monkeypatch):
     agent = RemoteA2ASpecialist(
         agent_type="code",
         url="https://agent.example.com",
+        api_key="secret",
     )
 
     with pytest.raises(ValueError, match="outside the configured service origin"):
@@ -265,3 +266,57 @@ def test_router_rejects_unknown_remote_credentials(monkeypatch):
             agents={},
             remote_specialist_urls={},
         )
+
+
+def test_remote_specialist_rejects_insecure_transport(monkeypatch):
+    import app.routing.remote_specialist as module
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        module,
+        "settings",
+        SimpleNamespace(a2a_remote_require_https=True, a2a_remote_require_auth=False),
+    )
+    agent = RemoteA2ASpecialist(
+        agent_type="code",
+        url="http://agent.example.com",
+    )
+
+    with pytest.raises(ValueError, match="must use HTTPS"):
+        agent._ensure_client()
+
+
+def test_remote_specialist_rejects_missing_remote_auth(monkeypatch):
+    import app.routing.remote_specialist as module
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        module,
+        "settings",
+        SimpleNamespace(a2a_remote_require_https=False, a2a_remote_require_auth=True),
+    )
+    agent = RemoteA2ASpecialist(
+        agent_type="code",
+        url="http://agent.example.com",
+    )
+
+    with pytest.raises(ValueError, match="requires an API key"):
+        agent._ensure_client()
+
+
+def test_remote_specialist_rejects_embedded_url_credentials(monkeypatch):
+    import app.routing.remote_specialist as module
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        module,
+        "settings",
+        SimpleNamespace(a2a_remote_require_https=False, a2a_remote_require_auth=False),
+    )
+    agent = RemoteA2ASpecialist(
+        agent_type="code",
+        url="http://user:password@agent.example.com",
+    )
+
+    with pytest.raises(ValueError, match="embedded credentials"):
+        agent._ensure_client()
