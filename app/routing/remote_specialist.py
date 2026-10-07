@@ -65,6 +65,9 @@ class RemoteA2ASpecialist:
                 "outside the configured service origin."
             )
 
+        if self.capability_validator is not None:
+            self.capability_validator(self.agent_type, card)
+
         self._agent_card = card
         self._client = A2AClient(
             agent_card=card,
