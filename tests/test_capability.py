@@ -8,6 +8,15 @@ from app.routing.capability import (
 from app.routing.registry import AgentCapability, AgentRegistry, DEFAULT_AGENT_REGISTRY
 
 
+def test_default_fallback_is_authorized():
+    authorizer = CapabilityAuthorizer(
+        DEFAULT_AGENT_REGISTRY,
+        authorized_agents=("email", "code"),
+    )
+
+    assert authorizer.select_fallback() == "email" or authorizer.select_fallback() == "code"
+
+
 def test_authorized_candidates_exclude_untrusted_agents():
     authorizer = CapabilityAuthorizer(
         DEFAULT_AGENT_REGISTRY,
