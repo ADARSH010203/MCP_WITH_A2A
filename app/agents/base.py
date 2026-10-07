@@ -24,8 +24,12 @@ class BaseAgent:
     processing_message = "Processing your request..."
     memory_agent_type = "base"
 
-    def _memory_context(self, session_id: str) -> str:
-        return self.memory_store.format_context(session_id, self.memory_agent_type)
+    def _memory_context(self, principal_id: str, session_id: str) -> str:
+        return self.memory_store.format_context(
+            principal_id,
+            session_id,
+            self.memory_agent_type,
+        )
 
     def _has_active_history(self, config: dict[str, dict[str, str]]) -> bool:
         try:
@@ -37,6 +41,7 @@ class BaseAgent:
     def _prepare_query(
         self,
         query: str,
+        principal_id: str,
         session_id: str,
         config: dict[str, dict[str, str]],
     ) -> str:
@@ -45,16 +50,29 @@ class BaseAgent:
         if self._has_active_history(config):
             return query
 
-        context = self._memory_context(session_id)
+        context = self._memory_context(principal_id, session_id)
         if not context:
             return query
         return f"{context}\n\nCurrent user request:\n{query}"
 
-    def _remember(self, session_id: str, query: str, response: dict[str, Any]) -> None:
-        self.memory_store.append(session_id, self.memory_agent_type, "user", query)
+    def _remember(
+        self,
+        principal_id: str,
+        session_id: str,
+        query: str,
+        response: dict[str, Any],
+    ) -> None:
+        self.memory_store.append(
+            principal_id,
+            session_id,
+            self.memory_agent_type,
+            "user",
+            query,
+        )
         content = str(response.get("content", "")).strip()
         if content:
             self.memory_store.append(
+                principal_id,
                 session_id,
                 self.memory_agent_type,
                 "assistant",
@@ -70,6 +88,7 @@ class BaseAgent:
             max_turns=settings.a2a_memory_turns,
             max_chars=settings.a2a_memory_max_chars,
             retention_days=settings.a2a_memory_retention_days,
+            namespace_secret=settings.a2a_memory_namespace_secret,
         )
         self.model = ChatGroq(model=settings.groq_model, max_tokens=2048)
         self.memory = MemorySaver()
@@ -84,20 +103,38 @@ class BaseAgent:
     def _config(self, session_id: str) -> dict[str, dict[str, str]]:
         return {"configurable": {"thread_id": session_id}}
 
-    def invoke(self, query: str, session_id: str) -> dict[str, Any]:
+    def invoke(
+        self,
+        query: str,
+        session_id: str,
+        principal_id: str = "default",
+    ) -> dict[str, Any]:
         config = self._config(session_id)
-        prepared_query = self._prepare_query(query, session_id, config)
+        prepared_query = self._prepare_query(
+            query,
+            principal_id,
+            session_id,
+            config,
+        )
         self.graph.invoke({"messages": [("user", prepared_query)]}, config)
         response = self.get_agent_response(config)
-        self._remember(session_id, query, response)
+        self._remember(principal_id, session_id, query, response)
         return response
 
     async def stream(
-        self, query: str, session_id: str
+        self,
+        query: str,
+        session_id: str,
+        principal_id: str = "default",
     ) -> AsyncIterable[dict[str, Any]]:
         config = self._config(session_id)
 
-        prepared_query = self._prepare_query(query, session_id)
+        prepared_query = self._prepare_query(
+            query,
+            principal_id,
+            session_id,
+            config,
+        )
         async for item in self.graph.astream(
             {"messages": [("user", prepared_query)]},
             config,
@@ -115,7 +152,7 @@ class BaseAgent:
                 }
 
         response = self.get_agent_response(config)
-        self._remember(session_id, query, response)
+        self._remember(principal_id, session_id, query, response)
         yield response
 
     def get_agent_response(self, config: dict[str, Any]) -> dict[str, Any]:
