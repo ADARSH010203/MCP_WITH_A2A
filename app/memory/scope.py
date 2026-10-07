@@ -30,6 +30,22 @@ class MemoryScope:
             if len(value) > 256:
                 raise MemoryScopeError(f"{name} is too long")
 
+    def session_key(self, secret: str) -> str:
+        """Return an opaque deterministic key for the principal/session scope."""
+        if not secret:
+            raise MemoryScopeError(
+                "A memory namespace secret is required for persistent memory."
+            )
+
+        canonical = "\\x1f".join(
+            (self.principal_id, self.session_id)
+        ).encode("utf-8")
+        return hmac.new(
+            secret.encode("utf-8"),
+            canonical,
+            hashlib.sha256,
+        ).hexdigest()
+
     def key(self, secret: str) -> str:
         """Return an opaque deterministic scope key."""
         if not secret:
