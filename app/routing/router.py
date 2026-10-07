@@ -2,6 +2,7 @@
 
 import asyncio
 import contextvars
+from functools import partial
 import re
 import threading
 import time
@@ -397,13 +398,14 @@ class MultiAgent:
         agent = self._get_agent(agent_type)
         context = contextvars.copy_context()
         if isinstance(agent, RemoteA2ASpecialist):
-            invoke = lambda: agent.invoke(
+            invoke = partial(
+                agent.invoke,
                 query,
                 session_id,
                 task_id=remote_task_id,
             )
         else:
-            invoke = lambda: agent.invoke(query, session_id)
+            invoke = partial(agent.invoke, query, session_id)
         future = executor.submit(context.run, invoke)
         effective_timeout = (
             self.specialist_timeout_seconds
