@@ -43,5 +43,8 @@ jobs:
       - name: Test
         run: pytest -q --tb=short
 
+      - name: Validate LLM quality dataset
+        run: python -m experiments.validate_quality_dataset
+
       - name: Evaluate routing benchmark
         run: python -m experiments.run_evaluation --min-routing-accuracy 1.0 --min-overall-accuracy 1.0
