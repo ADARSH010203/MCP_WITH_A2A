@@ -39,7 +39,7 @@ def test_selection_rejects_unauthorized_agent():
 def test_selection_rejects_unknown_agent():
     authorizer = CapabilityAuthorizer(DEFAULT_AGENT_REGISTRY)
 
-    with pytest.raises(CapabilityAuthorizationError, match="Unknown selected"):
+    with pytest.raises(CapabilityAuthorizationError, match="Unknown agent type"):
         authorizer.validate_selection(("not_registered",))
 
 
