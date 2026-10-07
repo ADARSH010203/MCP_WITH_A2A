@@ -112,11 +112,19 @@ class MultiAgent:
         self.planner = planner or CollaborationPlanner()
         self.semantic_router = semantic_router or SemanticRouter(
             self.AGENT_REGISTRY,
-            model_name=settings.groq_model,
-            enabled=settings.a2a_semantic_routing_enabled,
-            min_score=settings.a2a_semantic_routing_min_score,
-            secondary_score=settings.a2a_semantic_routing_secondary_score,
-            max_agents=settings.a2a_semantic_routing_max_agents,
+            model_name=getattr(
+                settings,
+                "groq_model",
+                "meta-llama/llama-4-scout-17b-16e-instruct",
+            ),
+            enabled=getattr(settings, "a2a_semantic_routing_enabled", True),
+            min_score=getattr(settings, "a2a_semantic_routing_min_score", 0.58),
+            secondary_score=getattr(
+                settings,
+                "a2a_semantic_routing_secondary_score",
+                0.72,
+            ),
+            max_agents=getattr(settings, "a2a_semantic_routing_max_agents", 3),
         )
         self.max_collaborative_agents = max(1, settings.a2a_max_collaborative_agents)
         self.remote_specialist_urls = dict(
