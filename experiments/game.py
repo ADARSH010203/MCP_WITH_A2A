@@ -1,7 +1,6 @@
 import pygame
 import cv2
 import sounddevice as sd
-import numpy as np
 import webbrowser
 from io import StringIO
 import contextlib
