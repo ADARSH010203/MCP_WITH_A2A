@@ -67,6 +67,7 @@ class Settings:
         3,
         minimum=1,
     )
+    a2a_allowed_agents: tuple[str, ...] = field(default_factory=tuple, init=False)
     mcp_url: str = os.getenv("MCP_URL", "http://127.0.0.1:3000/sse")
     a2a_public_url: str = os.getenv("A2A_PUBLIC_URL", "")
     a2a_cors_origins: tuple[str, ...] = field(default_factory=tuple, init=False)
@@ -247,6 +248,11 @@ def _load_specialist_api_keys() -> dict[str, str]:
     return result
 
 
+def _load_allowed_agents() -> tuple[str, ...]:
+    raw = os.getenv("A2A_ALLOWED_AGENTS", "")
+    return tuple(item.strip() for item in raw.split(",") if item.strip())
+
+
 def _load_cors_origins() -> tuple[str, ...]:
     raw = os.getenv("A2A_CORS_ORIGINS", "")
     return tuple(origin.strip() for origin in raw.split(",") if origin.strip())
@@ -255,4 +261,5 @@ def _load_cors_origins() -> tuple[str, ...]:
 settings = Settings()
 object.__setattr__(settings, "a2a_specialist_urls", _load_specialist_urls())
 object.__setattr__(settings, "a2a_specialist_api_keys", _load_specialist_api_keys())
+object.__setattr__(settings, "a2a_allowed_agents", _load_allowed_agents())
 object.__setattr__(settings, "a2a_cors_origins", _load_cors_origins())
