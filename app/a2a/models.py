@@ -13,6 +13,8 @@ from pydantic import (
 )
 from typing_extensions import Self
 
+from app.config.settings import settings
+
 
 class TaskState(str, Enum):
     SUBMITTED = "submitted"
