@@ -146,8 +146,8 @@ class CapabilityAuthorizer:
                 skill.id,
                 skill.name,
                 skill.description or "",
-                *skill.tags or (),
-                *skill.examples or (),
+                *(skill.tags or ()),
+                *(skill.examples or ()),
             )
             if part
         ).casefold()
