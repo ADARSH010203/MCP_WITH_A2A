@@ -1,6 +1,7 @@
 """FastAPI implementation of the A2A JSON-RPC endpoint."""
 
 import asyncio
+import hashlib
 import json
 import logging
 import secrets
@@ -34,6 +35,7 @@ from app.a2a.models import (
     TaskResubscriptionRequest,
 )
 from app.config.settings import settings
+from app.memory.context import use_memory_principal
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -267,6 +269,7 @@ class A2AServer:
             if self.task_manager is None:
                 raise RuntimeError("Task manager is not configured")
 
+            principal_id = self._principal_id_from_request(request)
             handlers = {
                 SendTaskRequest: self.task_manager.on_send_task,
                 SendTaskStreamingRequest: self.task_manager.on_send_task_subscribe,
@@ -289,9 +292,22 @@ class A2AServer:
                     f"Unsupported request type: {type(rpc_request).__name__}"
                 )
 
-            return self._create_response(await handler(rpc_request))
+            with use_memory_principal(principal_id):
+                return self._create_response(await handler(rpc_request))
         except Exception as exc:
             return self._handle_exception(exc)
+
+    @staticmethod
+    def _principal_id_from_request(request: Request) -> str:
+        """Derive an opaque principal from the authenticated caller identity."""
+        authorization = request.headers.get("Authorization", "")
+        scheme, _, credentials = authorization.partition(" ")
+        presented = credentials.strip() if scheme.casefold() == "bearer" else ""
+        if presented:
+            return "bearer:" + hashlib.sha256(
+                presented.encode("utf-8")
+            ).hexdigest()
+        return "anonymous"
 
     def _handle_exception(self, exc: Exception) -> JSONResponse:
         if isinstance(exc, json.JSONDecodeError):

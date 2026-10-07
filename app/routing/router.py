@@ -1,6 +1,7 @@
 """Route requests and coordinate collaboration between specialized agents."""
 
 import asyncio
+import contextvars
 import re
 import threading
 import time
@@ -382,7 +383,9 @@ class MultiAgent:
             max_workers=1,
             thread_name_prefix="agent-call",
         )
+        context = contextvars.copy_context()
         future = executor.submit(
+            context.run,
             self._get_agent(agent_type).invoke,
             query,
             session_id,
