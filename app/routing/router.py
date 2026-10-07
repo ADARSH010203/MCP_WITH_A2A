@@ -312,6 +312,7 @@ class MultiAgent:
                         agent_type,
                         settings.a2a_api_key,
                     ),
+                    capability_validator=self.capability_authorizer.validate_agent_card,
                 )
             else:
                 factory = self.agent_factories.get(agent_type)
