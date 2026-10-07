@@ -67,6 +67,7 @@ class Settings:
         3,
         minimum=1,
     )
+    a2a_allowed_agents: tuple[str, ...] = field(default_factory=tuple, init=False)
     mcp_url: str = os.getenv("MCP_URL", "http://127.0.0.1:3000/sse")
     a2a_public_url: str = os.getenv("A2A_PUBLIC_URL", "")
     a2a_cors_origins: tuple[str, ...] = field(default_factory=tuple, init=False)
