@@ -17,6 +17,7 @@ def test_compose_file_is_valid_yaml():
     assert "A2A_REMOTE_REQUIRE_HTTPS" in environment
     assert "A2A_SPECIALIST_TOTAL_TIMEOUT_SECONDS" in environment
     assert "MCP_SANDBOX_ROOT" in compose["services"]["a2a"]["environment"]
+    assert "MCP_ALLOWED_TOOLS" in compose["services"]["mcp"]["environment"]
 
 
 def test_mcp_service_mounts_bounded_workspace():
