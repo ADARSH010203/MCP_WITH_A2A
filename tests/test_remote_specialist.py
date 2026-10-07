@@ -82,7 +82,8 @@ def test_remote_specialist_invokes_capability_validator(monkeypatch):
 
     agent = RemoteA2ASpecialist(
         agent_type="code",
-        url="http://127.0.0.1:8101",
+        url="https://127.0.0.1:8101",
+        api_key="secret",
         capability_validator=validator,
     )
 
@@ -119,7 +120,7 @@ def test_remote_specialist_invokes_through_a2a(monkeypatch, completed_task):
     assert result["status"] == "completed"
     assert result["content"] == "remote result"
     assert result["execution_mode"] == "remote-a2a"
-    assert result["remote_url"] == "http://127.0.0.1:8101"
+    assert result["remote_url"] == "https://127.0.0.1:8101"
     assert created_clients[0].send_calls[0]["metadata"]["specialist"] == "code"
 
 
@@ -147,6 +148,7 @@ def test_remote_stream_maps_completed_artifact(monkeypatch):
         agent = RemoteA2ASpecialist(
             agent_type="code",
             url="https://127.0.0.1:8101",
+            api_key="secret",
         )
         events = [event async for event in agent.stream("Implement this", "session-2")]
 
