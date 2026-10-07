@@ -5,7 +5,7 @@ import pytest
 from app.routing.capability import CapabilityAuthorizationError, CapabilityAuthorizer
 from app.routing.registry import DEFAULT_AGENT_REGISTRY
 from app.routing.remote_specialist import RemoteA2ASpecialist
-from app.routing.workspace import WorkspaceError
+from app.mcp.workspace import WorkspaceError
 from app.memory.sqlite_memory import SQLiteConversationMemory
 
 
