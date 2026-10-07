@@ -46,7 +46,15 @@ def test_readiness_reports_all_critical_dependencies(monkeypatch):
     import app.a2a.readiness as module
 
     monkeypatch.setattr(module, "settings", _settings())
-    monkeypatch.setattr(module.socket, "create_connection", lambda *args, **kwargs: None)
+    class FakeSocket:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        module.socket,
+        "create_connection",
+        lambda *args, **kwargs: FakeSocket(),
+    )
 
     ready, checks = ReadinessChecker(
         task_manager=ReadyTaskManager(),
@@ -74,7 +82,15 @@ def test_readiness_fails_without_memory_namespace_secret(monkeypatch):
         "settings",
         _settings(a2a_memory_namespace_secret=""),
     )
-    monkeypatch.setattr(module.socket, "create_connection", lambda *args, **kwargs: None)
+    class FakeSocket:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        module.socket,
+        "create_connection",
+        lambda *args, **kwargs: FakeSocket(),
+    )
 
     ready, checks = ReadinessChecker(
         task_manager=ReadyTaskManager(),
