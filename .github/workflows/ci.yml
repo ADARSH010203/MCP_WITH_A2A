@@ -40,11 +40,20 @@ jobs:
       - name: Lint
         run: ruff check app host frontend scripts experiments tests
 
-      - name: Test
-        run: pytest -q --tb=short
+      - name: Unit and regression tests
+        run: pytest -q tests --ignore=tests/integration --ignore=tests/safety --tb=short
+
+      - name: Integration tests
+        run: pytest -q tests/integration --tb=short
+
+      - name: Safety tests
+        run: pytest -q tests/safety --tb=short
 
       - name: Validate LLM quality dataset
         run: python -m experiments.validate_quality_dataset
 
       - name: Evaluate routing benchmark
         run: python -m experiments.run_evaluation --min-routing-accuracy 1.0 --min-overall-accuracy 1.0
+
+      - name: Cost regression gate
+        run: python -m experiments.check_cost_regression
