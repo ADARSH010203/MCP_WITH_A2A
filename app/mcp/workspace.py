@@ -42,7 +42,15 @@ def resolve_workspace_path(relative_path: str) -> Path:
     return candidate
 
 
+def _is_within_root(path: Path) -> bool:
+    root = _root()
+    resolved = path.resolve()
+    return resolved == root or root in resolved.parents
+
+
 def _validate_file_size(path: Path) -> None:
+    if not _is_within_root(path):
+        raise WorkspaceError("path escapes the configured MCP workspace")
     if not path.is_file():
         raise WorkspaceError("workspace path is not a file")
 
@@ -84,6 +92,7 @@ def list_workspace_files(
         item
         for item in _root().rglob("*")
         if item.is_file()
+        and _is_within_root(item)
         and (
             not needle
             or needle in item.relative_to(_root()).as_posix().casefold()
@@ -192,6 +201,9 @@ def analyze_csv_file(
         path,
         nrows=settings.mcp_max_csv_rows,
     )
+    columns_truncated = len(frame.columns) > settings.mcp_max_csv_columns
+    if columns_truncated:
+        frame = frame.iloc[:, : settings.mcp_max_csv_columns]
     size = (
         settings.mcp_default_page_size
         if preview_page_size is None
@@ -230,4 +242,5 @@ def analyze_csv_file(
         "preview_page_size": size,
         "preview_has_next": has_next,
         "truncated": len(frame) >= settings.mcp_max_csv_rows,
+        "columns_truncated": columns_truncated,
     }
