@@ -572,6 +572,7 @@ def test_parallel_specialist_exception_is_isolated():
         raise RuntimeError("factory failed")
 
     agents = fake_agents()
+    agents.pop("code")
     router = MultiAgent(
         agents=agents,
         agent_factories={
