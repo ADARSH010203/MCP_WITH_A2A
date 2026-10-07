@@ -57,6 +57,9 @@ class CapabilityAuthorizer:
         if not self._authorized_agents:
             raise CapabilityAuthorizationError("No authorized agents are available.")
 
+        if "code" in self._authorized_agents:
+            return "code"
+
         return max(
             self._authorized_agents,
             key=lambda name: (
