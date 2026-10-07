@@ -363,9 +363,15 @@ class A2AClientError(Exception):
 
 
 class A2AClientHTTPError(A2AClientError):
-    def __init__(self, status_code: int, message: str):
+    def __init__(
+        self,
+        status_code: int,
+        message: str,
+        retry_after_seconds: float | None = None,
+    ):
         self.status_code = status_code
         self.message = message
+        self.retry_after_seconds = retry_after_seconds
         super().__init__(f"HTTP Error {status_code}: {message}")
 
 
