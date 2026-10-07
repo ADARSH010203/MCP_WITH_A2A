@@ -16,6 +16,15 @@ def test_compose_file_is_valid_yaml():
     assert "A2A_MEMORY_NAMESPACE_SECRET" in environment
     assert "A2A_REMOTE_REQUIRE_HTTPS" in environment
     assert "A2A_SPECIALIST_TOTAL_TIMEOUT_SECONDS" in environment
+    assert "MCP_SANDBOX_ROOT" in compose["services"]["a2a"]["environment"]
+    assert "MCP_ALLOWED_TOOLS" in compose["services"]["mcp"]["environment"]
+
+
+def test_mcp_service_mounts_bounded_workspace():
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    mcp_service = compose["services"]["mcp"]
+
+    assert any("/app/workspace" in item.get("volume", item) if isinstance(item, dict) else "/app/workspace" in item for item in mcp_service.get("volumes", []))
 
 
 def test_dockerfile_runs_as_non_root():
