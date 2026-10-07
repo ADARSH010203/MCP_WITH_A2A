@@ -103,9 +103,14 @@ def test_memory_retention_removes_expired_records(tmp_path):
         ("2000-01-01T00:00:00+00:00", expired_scope),
     )
     memory.append("tenant-a", "expired", "code", "user", "remove this")
+    expired_scope = memory._scope(
+        "tenant-a",
+        "expired",
+        "code",
+    ).session_key(memory.namespace_secret)
     memory.connection.execute(
-        "UPDATE conversation_turns SET created_at = ? WHERE session_id = ?",
-        ("2000-01-01T00:00:00+00:00", "expired"),
+        "UPDATE conversation_turns SET created_at = ? WHERE session_scope_key = ?",
+        ("2000-01-01T00:00:00+00:00", expired_scope),
     )
     memory.connection.commit()
 
