@@ -101,6 +101,7 @@ class MultiAgent:
         planner: CollaborationPlanner | None = None,
         remote_specialist_urls: dict[str, str] | None = None,
         semantic_router: SemanticRouter | None = None,
+        authorized_agents: tuple[str, ...] | None = None,
     ) -> None:
         self.agents = agents if agents is not None else {}
         self.agent_factories = (
