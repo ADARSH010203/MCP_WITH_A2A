@@ -297,6 +297,7 @@ class MultiAgent:
         )
 
     def _get_agent(self, agent_type: str) -> Agent:
+        self.capability_authorizer.validate_selection([agent_type])
         with self._agent_lock:
             existing_agent = self.agents.get(agent_type)
             if existing_agent is not None:
