@@ -2,7 +2,7 @@
 
 import asyncio
 from urllib.parse import urlparse
-from collections.abc import AsyncIterable
+from collections.abc import AsyncIterable, Callable
 from typing import Any
 from uuid import uuid4
 
@@ -19,10 +19,12 @@ class RemoteA2ASpecialist:
         agent_type: str,
         url: str,
         api_key: str = "",
+        capability_validator: Callable[[str, AgentCard], None] | None = None,
     ) -> None:
         self.agent_type = agent_type
         self.url = url.rstrip("/")
         self.api_key = api_key
+        self.capability_validator = capability_validator
         self._agent_card: AgentCard | None = None
         self._client: A2AClient | None = None
 
@@ -62,6 +64,9 @@ class RemoteA2ASpecialist:
                 f"Remote agent '{self.agent_type}' returned an Agent Card URL "
                 "outside the configured service origin."
             )
+
+        if self.capability_validator is not None:
+            self.capability_validator(self.agent_type, card)
 
         self._agent_card = card
         self._client = A2AClient(

@@ -19,6 +19,7 @@ from app.agents.game import GameGeneratorAgent
 from app.agents.image import ImageGeneratorAgent
 from app.agents.reinforcement import ReinforcementLearningAgent
 from app.config.settings import settings
+from app.routing.capability import CapabilityAuthorizer, CapabilityAuthorizationError
 from app.routing.planner import CollaborationPlan, CollaborationPlanner
 from app.routing.registry import DEFAULT_AGENT_REGISTRY
 from app.routing.remote_specialist import RemoteA2ASpecialist
@@ -100,6 +101,7 @@ class MultiAgent:
         planner: CollaborationPlanner | None = None,
         remote_specialist_urls: dict[str, str] | None = None,
         semantic_router: SemanticRouter | None = None,
+        authorized_agents: tuple[str, ...] | None = None,
     ) -> None:
         self.agents = agents if agents is not None else {}
         self.agent_factories = (
@@ -110,6 +112,14 @@ class MultiAgent:
         self.critic = critic
         self.critic_factory = critic_factory
         self.planner = planner or CollaborationPlanner()
+        self.capability_authorizer = CapabilityAuthorizer(
+            self.AGENT_REGISTRY,
+            authorized_agents=(
+                authorized_agents
+                if authorized_agents is not None
+                else getattr(settings, "a2a_allowed_agents", None) or None
+            ),
+        )
         self.semantic_router = semantic_router or SemanticRouter(
             self.AGENT_REGISTRY,
             model_name=getattr(
@@ -212,20 +222,32 @@ class MultiAgent:
     ) -> list[str]:
         """Select specialists using deterministic matching with semantic fallback."""
         text = self._normalize(query)
-        scores = self._score_agent_types(text)
+        authorized = tuple(
+            agent
+            for agent in self.AGENT_REGISTRY.names()
+            if agent in self.capability_authorizer.authorized_agents
+        )
         limit = max(1, max_agents or self.max_collaborative_agents)
+        scores = {
+            agent: score
+            for agent, score in self._score_agent_types(text).items()
+            if agent in self.capability_authorizer.authorized_agents
+        }
 
         if not scores:
             try:
                 selected = self.semantic_router.select(
                     text,
+                    candidates=authorized,
                     max_agents=limit,
                 )
-                return selected[:limit] or ["code"]
-            except SemanticRoutingError:
-                # Semantic routing is an enhancement, never a single point of
-                # failure. Preserve the existing deterministic safe default.
-                return ["code"]
+                self.capability_authorizer.validate_selection(selected)
+                return selected[:limit]
+            except (SemanticRoutingError, CapabilityAuthorizationError):
+                # Semantic routing is an enhancement, never a security boundary.
+                fallback = self.capability_authorizer.select_fallback()
+                self.capability_authorizer.validate_selection([fallback])
+                return [fallback]
 
         ranked = [
             agent_type
@@ -259,8 +281,9 @@ class MultiAgent:
         agent_types: list[str] | None = None,
     ) -> CollaborationPlan:
         selected_agents = agent_types or self.select_agent_types(query)
-        for agent in selected_agents:
-            self.AGENT_REGISTRY.get(agent)
+        selected_agents = list(
+            self.capability_authorizer.validate_selection(selected_agents)
+        )
         parallel_capabilities = {
             agent: self.AGENT_REGISTRY.get(agent).can_parallel
             for agent in selected_agents
@@ -274,6 +297,7 @@ class MultiAgent:
         )
 
     def _get_agent(self, agent_type: str) -> Agent:
+        self.capability_authorizer.validate_selection([agent_type])
         with self._agent_lock:
             existing_agent = self.agents.get(agent_type)
             if existing_agent is not None:
@@ -288,6 +312,7 @@ class MultiAgent:
                         agent_type,
                         settings.a2a_api_key,
                     ),
+                    capability_validator=self.capability_authorizer.validate_agent_card,
                 )
             else:
                 factory = self.agent_factories.get(agent_type)

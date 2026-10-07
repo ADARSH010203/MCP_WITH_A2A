@@ -36,6 +36,26 @@ class FakeSemanticRouter:
         return self.selected[:max_agents]
 
 
+def test_semantic_router_rejects_empty_candidate_set() -> None:
+    llm = FakeStructuredLLM(
+        SemanticRoutingDecision(
+            rankings=[SemanticAgentScore(agent="code", score=0.99)]
+        )
+    )
+    router = SemanticRouter(
+        DEFAULT_AGENT_REGISTRY,
+        model_name="test-model",
+        llm=llm,
+    )
+
+    try:
+        router.select("Build something.", candidates=())
+    except Exception as exc:
+        assert "No candidate agents" in str(exc)
+    else:
+        raise AssertionError("Expected an empty candidate set to be rejected.")
+
+
 def test_semantic_router_accepts_only_registered_agents() -> None:
     llm = FakeStructuredLLM(
         SemanticRoutingDecision(
@@ -141,8 +161,13 @@ def test_multAgent_falls_back_to_code_when_semantic_router_is_unavailable() -> N
     from app.routing.semantic import SemanticRoutingError
 
     class BrokenSemanticRouter:
-        def select(self, query: str, max_agents: int = 3) -> list[str]:
-            del query, max_agents
+        def select(
+            self,
+            query: str,
+            candidates: tuple[str, ...] | None = None,
+            max_agents: int = 3,
+        ) -> list[str]:
+            del query, candidates, max_agents
             raise SemanticRoutingError("provider unavailable")
 
     router = MultiAgent(semantic_router=BrokenSemanticRouter())

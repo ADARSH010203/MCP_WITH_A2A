@@ -1,3 +1,4 @@
+import pytest
 import asyncio
 import time
 
@@ -590,3 +591,39 @@ def test_parallel_specialist_exception_is_isolated():
     by_agent = {item["agent"]: item for item in outcomes}
     assert by_agent["code"]["status"] == "error"
     assert by_agent["deep_learning"]["status"] == "completed"
+
+
+def test_router_rejects_explicit_unauthorized_agent_selection():
+    from app.routing.capability import CapabilityAuthorizationError
+
+    router = MultiAgent(
+        agents=fake_agents(),
+        authorized_agents=("code",),
+    )
+
+    with pytest.raises(CapabilityAuthorizationError, match="Unauthorized"):
+        router.build_collaboration_plan(
+            "Write a professional email.",
+            agent_types=["email"],
+        )
+
+
+def test_router_semantic_fallback_receives_only_authorized_candidates():
+    class CandidateAwareSemanticRouter:
+        def __init__(self):
+            self.candidates = None
+
+        def select(self, query, candidates=None, max_agents=3):
+            del query, max_agents
+            self.candidates = tuple(candidates or ())
+            return [self.candidates[0]] if self.candidates else []
+
+    semantic = CandidateAwareSemanticRouter()
+    router = MultiAgent(
+        agents=fake_agents(),
+        authorized_agents=("email",),
+        semantic_router=semantic,
+    )
+
+    assert router.select_agent_types("A request outside deterministic triggers.") == ["email"]
+    assert semantic.candidates == ("email",)
