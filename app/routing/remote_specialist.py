@@ -2,7 +2,7 @@
 
 import asyncio
 from urllib.parse import urlparse
-from collections.abc import AsyncIterable
+from collections.abc import AsyncIterable, Callable
 from typing import Any
 from uuid import uuid4
 
