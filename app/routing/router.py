@@ -222,20 +222,32 @@ class MultiAgent:
     ) -> list[str]:
         """Select specialists using deterministic matching with semantic fallback."""
         text = self._normalize(query)
-        scores = self._score_agent_types(text)
+        authorized = tuple(
+            agent
+            for agent in self.AGENT_REGISTRY.names()
+            if agent in self.capability_authorizer.authorized_agents
+        )
         limit = max(1, max_agents or self.max_collaborative_agents)
+        scores = {
+            agent: score
+            for agent, score in self._score_agent_types(text).items()
+            if agent in self.capability_authorizer.authorized_agents
+        }
 
         if not scores:
             try:
                 selected = self.semantic_router.select(
                     text,
+                    candidates=authorized,
                     max_agents=limit,
                 )
-                return selected[:limit] or ["code"]
-            except SemanticRoutingError:
-                # Semantic routing is an enhancement, never a single point of
-                # failure. Preserve the existing deterministic safe default.
-                return ["code"]
+                self.capability_authorizer.validate_selection(selected)
+                return selected[:limit]
+            except (SemanticRoutingError, CapabilityAuthorizationError):
+                # Semantic routing is an enhancement, never a security boundary.
+                fallback = self.capability_authorizer.select_fallback()
+                self.capability_authorizer.validate_selection([fallback])
+                return [fallback]
 
         ranked = [
             agent_type
