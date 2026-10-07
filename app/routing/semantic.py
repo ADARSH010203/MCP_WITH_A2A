@@ -115,7 +115,11 @@ class SemanticRouter:
         candidates: Sequence[str] | None = None,
     ) -> list[SemanticAgentScore]:
         """Rank registered candidates using structured LLM output."""
-        names = tuple(candidates or self.registry.names())
+        names = (
+            self.registry.names()
+            if candidates is None
+            else tuple(candidates)
+        )
         if not names:
             raise SemanticRoutingError("No candidate agents are available.")
 
