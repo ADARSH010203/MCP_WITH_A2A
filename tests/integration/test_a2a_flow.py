@@ -1,13 +1,9 @@
-from types import SimpleNamespace
-
 from fastapi.testclient import TestClient
 
 from app.a2a.models import (
     AgentCapabilities,
     AgentCard,
     AgentSkill,
-    Message,
-    TaskSendParams,
 )
 from app.a2a.server import A2AServer
 from app.a2a.task_manager import AgentTaskManager
