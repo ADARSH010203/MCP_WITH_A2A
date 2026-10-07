@@ -1,0 +1,48 @@
+name: LLM Quality Evaluation
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Number of quality cases to run (0 = all)"
+        required: false
+        default: "0"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Verify API key
+        run: |
+          if [ -z "$GROQ_API_KEY" ]; then
+            echo "GROQ_API_KEY repository secret is required for live evaluation."
+            exit 1
+          fi
+
+      - name: Validate dataset
+        run: python -m experiments.validate_quality_dataset
+
+      - name: Run live LLM quality evaluation
+        run: |
+          python -m experiments.run_quality_evaluation \
+            --limit "${{ inputs.limit }}"
+
