@@ -164,14 +164,20 @@ class ReadinessChecker:
             return ReadinessCheck("mcp", False, detail)
 
         parsed = urlparse(settings.mcp_url)
+        connection = None
         try:
-            with socket.create_connection(
-                (parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80)),
+            connection = socket.create_connection(
+                (
+                    parsed.hostname,
+                    parsed.port or (443 if parsed.scheme == "https" else 80),
+                ),
                 timeout=1.0,
-            ):
-                pass
+            )
         except (OSError, ValueError):
             return ReadinessCheck("mcp", False, "MCP service is not reachable.")
+        finally:
+            if connection is not None:
+                connection.close()
 
         return ReadinessCheck("mcp", True, "MCP endpoint host is reachable.")
 
