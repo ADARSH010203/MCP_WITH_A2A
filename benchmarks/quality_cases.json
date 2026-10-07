@@ -1,0 +1,76 @@
+[
+  {
+    "name": "currency_answer",
+    "category": "currency",
+    "query": "What is a foreign exchange rate and why does it change?",
+    "reference_answer": "A foreign exchange rate is the price of one currency in another currency. It changes because of supply and demand, interest rates, inflation, economic conditions, trade flows, and market expectations.",
+    "rubric": [
+      "Defines an exchange rate clearly.",
+      "Explains that the rate represents one currency relative to another.",
+      "Mentions multiple valid drivers of exchange-rate movement."
+    ],
+    "minimum_overall_score": 0.75
+  },
+  {
+    "name": "email_draft",
+    "category": "professional communication",
+    "query": "Write a polite email asking a recruiter to reschedule an interview.",
+    "reference_answer": "The email should be polite, concise, professional, clearly request a new time, acknowledge the original invitation, and avoid unnecessary personal detail.",
+    "rubric": [
+      "Uses a professional greeting and tone.",
+      "Clearly asks to reschedule.",
+      "Acknowledges the original interview invitation.",
+      "Ends with a professional closing."
+    ],
+    "minimum_overall_score": 0.75
+  },
+  {
+    "name": "binary_search",
+    "category": "data structures",
+    "query": "Explain binary search and its time complexity.",
+    "reference_answer": "Binary search works on sorted data by repeatedly comparing the target with the middle element and discarding half the remaining search space. Its time complexity is O(log n) and it requires sorted input.",
+    "rubric": [
+      "Requires or states sorted input.",
+      "Explains the middle-element and half-space reduction idea.",
+      "States O(log n) time complexity."
+    ],
+    "minimum_overall_score": 0.8
+  },
+  {
+    "name": "cnn_basics",
+    "category": "deep learning",
+    "query": "Why are convolutional neural networks effective for image classification?",
+    "reference_answer": "CNNs exploit local spatial structure using convolutional filters, reuse parameters across an image, and learn hierarchical features such as edges, textures, and shapes.",
+    "rubric": [
+      "Explains local spatial feature extraction.",
+      "Mentions parameter sharing or reused filters.",
+      "Mentions hierarchical feature learning."
+    ],
+    "minimum_overall_score": 0.8
+  },
+  {
+    "name": "q_learning",
+    "category": "reinforcement learning",
+    "query": "What is the main idea of Q-learning?",
+    "reference_answer": "Q-learning learns an action-value function that estimates the expected future return of taking an action in a state. It updates Q-values from rewards and the estimated best future value, and the learned policy chooses actions with high value.",
+    "rubric": [
+      "Defines the action-value/Q function.",
+      "Explains learning from rewards and future value estimates.",
+      "Connects learned values to action selection."
+    ],
+    "minimum_overall_score": 0.8
+  },
+  {
+    "name": "python_api",
+    "category": "software engineering",
+    "query": "What are three important practices when designing a production FastAPI service?",
+    "reference_answer": "Good practices include explicit request/response validation, structured logging and observability, authentication/authorization, bounded timeouts and retries, and health/readiness checks.",
+    "rubric": [
+      "Mentions input/output validation.",
+      "Mentions authentication or authorization.",
+      "Mentions observability or structured logging.",
+      "Mentions operational reliability such as timeouts, retries, or readiness checks."
+    ],
+    "minimum_overall_score": 0.8
+  }
+]
