@@ -161,8 +161,13 @@ def test_multAgent_falls_back_to_code_when_semantic_router_is_unavailable() -> N
     from app.routing.semantic import SemanticRoutingError
 
     class BrokenSemanticRouter:
-        def select(self, query: str, max_agents: int = 3) -> list[str]:
-            del query, max_agents
+        def select(
+            self,
+            query: str,
+            candidates: tuple[str, ...] | None = None,
+            max_agents: int = 3,
+        ) -> list[str]:
+            del query, candidates, max_agents
             raise SemanticRoutingError("provider unavailable")
 
     router = MultiAgent(semantic_router=BrokenSemanticRouter())
