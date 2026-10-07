@@ -37,10 +37,30 @@ class RemoteA2ASpecialist:
         status_code = getattr(error, "status_code", None)
         return status_code in {408, 409, 425, 429, 500, 502, 503, 504}
 
+    def _validate_remote_origin(self) -> None:
+        parsed = urlparse(self.url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError(
+                f"Remote agent '{self.agent_type}' has an invalid configured URL."
+            )
+        if parsed.username or parsed.password:
+            raise ValueError(
+                f"Remote agent '{self.agent_type}' URL must not contain embedded credentials."
+            )
+        if settings.a2a_remote_require_https and parsed.scheme != "https":
+            raise ValueError(
+                f"Remote agent '{self.agent_type}' must use HTTPS."
+            )
+        if settings.a2a_remote_require_auth and not self.api_key:
+            raise ValueError(
+                f"Remote agent '{self.agent_type}' requires an API key."
+            )
+
     def _ensure_client(self) -> A2AClient:
         if self._client is not None:
             return self._client
 
+        self._validate_remote_origin()
         resolver = A2ACardResolver(
             self.url,
             api_key=self.api_key,
