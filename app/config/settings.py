@@ -83,6 +83,14 @@ class Settings:
         55.0,
         minimum=0.1,
     )
+    a2a_remote_require_https: bool = _env_bool(
+        "A2A_REMOTE_REQUIRE_HTTPS",
+        True,
+    )
+    a2a_remote_require_auth: bool = _env_bool(
+        "A2A_REMOTE_REQUIRE_AUTH",
+        True,
+    )
     currency_api_url: str = os.getenv(
         "CURRENCY_API_URL",
         "https://api.frankfurter.dev/v2",
