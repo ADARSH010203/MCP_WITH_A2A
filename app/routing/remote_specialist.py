@@ -24,6 +24,7 @@ class RemoteA2ASpecialist:
         self.agent_type = agent_type
         self.url = url.rstrip("/")
         self.api_key = api_key
+        self.capability_validator = capability_validator
         self._agent_card: AgentCard | None = None
         self._client: A2AClient | None = None
 
