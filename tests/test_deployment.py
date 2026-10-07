@@ -12,6 +12,10 @@ def test_compose_file_is_valid_yaml():
     assert set(compose["services"]) == {"mcp", "a2a"}
     assert compose["services"]["a2a"]["environment"]["MCP_URL"] == "http://mcp:3000/sse"
     assert compose["services"]["a2a"]["healthcheck"]["retries"] == 3
+    environment = compose["services"]["a2a"]["environment"]
+    assert "A2A_MEMORY_NAMESPACE_SECRET" in environment
+    assert "A2A_REMOTE_REQUIRE_HTTPS" in environment
+    assert "A2A_SPECIALIST_TOTAL_TIMEOUT_SECONDS" in environment
 
 
 def test_dockerfile_runs_as_non_root():
