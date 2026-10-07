@@ -261,4 +261,5 @@ def _load_cors_origins() -> tuple[str, ...]:
 settings = Settings()
 object.__setattr__(settings, "a2a_specialist_urls", _load_specialist_urls())
 object.__setattr__(settings, "a2a_specialist_api_keys", _load_specialist_api_keys())
+object.__setattr__(settings, "a2a_allowed_agents", _load_allowed_agents())
 object.__setattr__(settings, "a2a_cors_origins", _load_cors_origins())
