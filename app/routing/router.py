@@ -164,12 +164,20 @@ class MultiAgent:
         self.specialist_timeout_seconds = settings.a2a_specialist_timeout_seconds
         self.specialist_max_retries = settings.a2a_specialist_max_retries
         self.specialist_retry_backoff_seconds = settings.a2a_specialist_retry_backoff_seconds
-        self.specialist_retry_max_backoff_seconds = (
-            settings.a2a_specialist_retry_max_backoff_seconds
+        self.specialist_retry_max_backoff_seconds = getattr(
+            settings,
+            "a2a_specialist_retry_max_backoff_seconds",
+            5.0,
         )
-        self.specialist_retry_jitter_ratio = settings.a2a_specialist_retry_jitter_ratio
-        self.specialist_total_timeout_seconds = (
-            settings.a2a_specialist_total_timeout_seconds
+        self.specialist_retry_jitter_ratio = getattr(
+            settings,
+            "a2a_specialist_retry_jitter_ratio",
+            0.25,
+        )
+        self.specialist_total_timeout_seconds = getattr(
+            settings,
+            "a2a_specialist_total_timeout_seconds",
+            90.0,
         )
         self.max_agent_calls_per_task = settings.a2a_max_agent_calls_per_task
         self._agent_lock = threading.Lock()
