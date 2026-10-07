@@ -148,6 +148,10 @@ class Settings:
         4000,
         minimum=100,
     )
+    a2a_memory_namespace_secret: str = os.getenv(
+        "A2A_MEMORY_NAMESPACE_SECRET",
+        "",
+    )
     a2a_memory_retention_days: int = _env_int(
         "A2A_MEMORY_RETENTION_DAYS",
         30,
