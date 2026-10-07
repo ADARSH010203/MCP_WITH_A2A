@@ -9,6 +9,7 @@ from uuid import uuid4
 from app.a2a.card_resolver import A2ACardResolver
 from app.a2a.client import A2AClient
 from app.a2a.models import AgentCard, TaskState
+from app.config.settings import settings
 
 
 class RemoteA2ASpecialist:
