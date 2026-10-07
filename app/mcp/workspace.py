@@ -170,8 +170,7 @@ def search_workspace(
         matches.append(
             {
                 "path": path.relative_to(root).as_posix(),
-                "snippet": content[start:end].replace("
-", " "),
+                "snippet": content[start:end].replace("\n", " "),
             }
         )
 
