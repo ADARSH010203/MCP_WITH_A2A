@@ -14,7 +14,7 @@ def test_default_fallback_is_authorized():
         authorized_agents=("email", "code"),
     )
 
-    assert authorizer.select_fallback() == "email" or authorizer.select_fallback() == "code"
+    assert authorizer.select_fallback() == "code"
 
 
 def test_authorized_candidates_exclude_untrusted_agents():
