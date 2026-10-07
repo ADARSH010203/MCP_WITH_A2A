@@ -312,6 +312,12 @@ class ContentTypeNotSupportedError(JSONRPCError):
     data: None = None
 
 
+class RateLimitError(JSONRPCError):
+    code: int = -32029
+    message: str = "Rate limit exceeded"
+    data: Any | None = None
+
+
 class AgentProvider(BaseModel):
     organization: str
     url: str | None = None
