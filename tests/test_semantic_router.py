@@ -36,6 +36,26 @@ class FakeSemanticRouter:
         return self.selected[:max_agents]
 
 
+def test_semantic_router_rejects_empty_candidate_set() -> None:
+    llm = FakeStructuredLLM(
+        SemanticRoutingDecision(
+            rankings=[SemanticAgentScore(agent="code", score=0.99)]
+        )
+    )
+    router = SemanticRouter(
+        DEFAULT_AGENT_REGISTRY,
+        model_name="test-model",
+        llm=llm,
+    )
+
+    try:
+        router.select("Build something.", candidates=())
+    except Exception as exc:
+        assert "No candidate agents" in str(exc)
+    else:
+        raise AssertionError("Expected an empty candidate set to be rejected.")
+
+
 def test_semantic_router_accepts_only_registered_agents() -> None:
     llm = FakeStructuredLLM(
         SemanticRoutingDecision(
