@@ -19,6 +19,7 @@ class RemoteA2ASpecialist:
         agent_type: str,
         url: str,
         api_key: str = "",
+        capability_validator: Callable[[str, AgentCard], None] | None = None,
     ) -> None:
         self.agent_type = agent_type
         self.url = url.rstrip("/")
