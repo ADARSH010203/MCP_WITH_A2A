@@ -13,6 +13,7 @@ from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel
 
 from app.config.settings import settings
+from app.memory.context import get_memory_principal_id
 from app.memory.sqlite_memory import SQLiteConversationMemory
 
 
@@ -77,6 +78,7 @@ class CurrencyAgent:
             settings.a2a_memory_db_path,
             max_turns=settings.a2a_memory_turns,
             max_chars=settings.a2a_memory_max_chars,
+            namespace_secret=settings.a2a_memory_namespace_secret,
         )
         self.tools = _fetch_mcp_tools_sync()
         self.model = ChatGroq(model=settings.groq_model, max_tokens=2048)
@@ -91,7 +93,11 @@ class CurrencyAgent:
 
     def invoke(self, query: str, session_id: str) -> dict[str, Any]:
         config = {"configurable": {"thread_id": session_id}}
-        context = self.memory_store.format_context(session_id, self.memory_agent_type)
+        context = self.memory_store.format_context(
+            get_memory_principal_id(),
+            session_id,
+            self.memory_agent_type,
+        )
         prepared_query = query if not context else f"{context}\n\nCurrent user request:\n{query}"
         self.graph.invoke({"messages": [("user", prepared_query)]}, config)
         response = self.get_agent_response(config)
@@ -99,10 +105,22 @@ class CurrencyAgent:
         return response
 
     def _remember(self, session_id: str, query: str, response: dict[str, Any]) -> None:
-        self.memory_store.append(session_id, self.memory_agent_type, "user", query)
+        self.memory_store.append(
+            get_memory_principal_id(),
+            session_id,
+            self.memory_agent_type,
+            "user",
+            query,
+        )
         content = str(response.get("content", "")).strip()
         if content:
-            self.memory_store.append(session_id, self.memory_agent_type, "assistant", content)
+            self.memory_store.append(
+                get_memory_principal_id(),
+                session_id,
+                self.memory_agent_type,
+                "assistant",
+                content,
+            )
 
     async def stream(
         self, query: str, session_id: str
