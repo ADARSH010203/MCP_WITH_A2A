@@ -281,6 +281,42 @@ def test_collaboration_surfaces_required_input_when_all_specialists_need_it():
     assert "code" in result["content"]
 
 
+def test_remote_retry_reuses_same_a2a_task_id():
+    from app.routing.remote_specialist import RemoteA2ASpecialist
+    from app.a2a.models import A2AClientHTTPError
+
+    class RetryRemote(RemoteA2ASpecialist):
+        def __init__(self):
+            self.agent_type = "code"
+            self.task_ids = []
+
+        def invoke(self, query, session_id, task_id=None):
+            del query, session_id
+            self.task_ids.append(task_id)
+            if len(self.task_ids) == 1:
+                raise A2AClientHTTPError(503, "temporary upstream failure")
+            return {
+                "agent": "code",
+                "status": "completed",
+                "content": "remote success",
+                "execution_mode": "remote-a2a",
+            }
+
+    remote = RetryRemote()
+    router = MultiAgent(agents={"code": remote})
+    router.specialist_max_retries = 1
+    router.specialist_retry_backoff_seconds = 0
+    router.specialist_retry_jitter_ratio = 0
+    router.specialist_total_timeout_seconds = 5
+
+    result = router.invoke("Write Python code", "session-remote-retry")
+
+    assert result["status"] == "completed"
+    assert len(remote.task_ids) == 2
+    assert remote.task_ids[0]
+    assert remote.task_ids[0] == remote.task_ids[1]
+
+
 def test_specialist_retries_transient_failures():
     agents = fake_agents()
     agents["code"] = RetryAgent("code")

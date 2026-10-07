@@ -2,12 +2,14 @@
 
 import asyncio
 import contextvars
+from functools import partial
 import re
 import threading
 import time
 from collections.abc import AsyncIterable, Callable
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any, Protocol
+from uuid import uuid4
 
 from app.a2a.models import Message
 from app.agents.code import CodeGeneratorAgent
@@ -24,6 +26,7 @@ from app.routing.capability import CapabilityAuthorizer, CapabilityAuthorization
 from app.routing.planner import CollaborationPlan, CollaborationPlanner
 from app.routing.registry import DEFAULT_AGENT_REGISTRY
 from app.routing.remote_specialist import RemoteA2ASpecialist
+from app.routing.retry import RetryPolicy
 from app.routing.semantic import SemanticRouter, SemanticRoutingError
 from app.routing.tracing import CollaborationTrace
 
@@ -161,6 +164,21 @@ class MultiAgent:
         self.specialist_timeout_seconds = settings.a2a_specialist_timeout_seconds
         self.specialist_max_retries = settings.a2a_specialist_max_retries
         self.specialist_retry_backoff_seconds = settings.a2a_specialist_retry_backoff_seconds
+        self.specialist_retry_max_backoff_seconds = getattr(
+            settings,
+            "a2a_specialist_retry_max_backoff_seconds",
+            5.0,
+        )
+        self.specialist_retry_jitter_ratio = getattr(
+            settings,
+            "a2a_specialist_retry_jitter_ratio",
+            0.25,
+        )
+        self.specialist_total_timeout_seconds = getattr(
+            settings,
+            "a2a_specialist_total_timeout_seconds",
+            90.0,
+        )
         self.max_agent_calls_per_task = settings.a2a_max_agent_calls_per_task
         self._agent_lock = threading.Lock()
 
@@ -342,6 +360,8 @@ class MultiAgent:
         budget: CallBudget,
         trace: CollaborationTrace | None = None,
         attempt: int = 1,
+        timeout_seconds: float | None = None,
+        remote_task_id: str | None = None,
     ) -> dict[str, Any]:
         if not budget.reserve():
             result = {
@@ -383,15 +403,25 @@ class MultiAgent:
             max_workers=1,
             thread_name_prefix="agent-call",
         )
+        agent = self._get_agent(agent_type)
         context = contextvars.copy_context()
-        future = executor.submit(
-            context.run,
-            self._get_agent(agent_type).invoke,
-            query,
-            session_id,
+        if isinstance(agent, RemoteA2ASpecialist):
+            invoke = partial(
+                agent.invoke,
+                query,
+                session_id,
+                task_id=remote_task_id,
+            )
+        else:
+            invoke = partial(agent.invoke, query, session_id)
+        future = executor.submit(context.run, invoke)
+        effective_timeout = (
+            self.specialist_timeout_seconds
+            if timeout_seconds is None
+            else max(0.0, timeout_seconds)
         )
         try:
-            result = future.result(timeout=self.specialist_timeout_seconds)
+            result = future.result(timeout=effective_timeout)
         except FuturesTimeoutError:
             future.cancel()
             executor.shutdown(wait=False, cancel_futures=True)
@@ -400,9 +430,10 @@ class MultiAgent:
                 "status": "timeout",
                 "content": (
                     f"{agent_type} specialist exceeded the "
-                    f"{self.specialist_timeout_seconds:g}s timeout."
+                    f"{effective_timeout:g}s timeout."
                 ),
                 "attempts": 1,
+                "retryable": True,
             }
             if trace:
                 trace.record(
@@ -421,6 +452,11 @@ class MultiAgent:
                 "content": f"Specialist failed: {exc}",
                 "attempts": 1,
                 "retryable": self._is_retryable_exception(exc),
+                "retry_after_seconds": getattr(
+                    exc,
+                    "retry_after_seconds",
+                    None,
+                ),
             }
             if trace:
                 trace.record(
@@ -481,31 +517,76 @@ class MultiAgent:
         budget: CallBudget,
         trace: CollaborationTrace | None = None,
     ) -> dict[str, Any]:
+        policy = RetryPolicy(
+            max_retries=self.specialist_max_retries,
+            base_delay_seconds=self.specialist_retry_backoff_seconds,
+            max_delay_seconds=self.specialist_retry_max_backoff_seconds,
+            jitter_ratio=self.specialist_retry_jitter_ratio,
+        )
+        deadline = time.monotonic() + self.specialist_total_timeout_seconds
+        operation_task_id = uuid4().hex
+
         for attempt in range(self.specialist_max_retries + 1):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return {
+                    "agent": agent_type,
+                    "status": "timeout",
+                    "content": "Specialist total retry timeout exhausted.",
+                    "attempts": attempt,
+                    "retryable": False,
+                }
+
+            agent = self._get_agent(agent_type)
+            attempt_session_id = (
+                session_id
+                if isinstance(agent, RemoteA2ASpecialist)
+                else (
+                    f"{session_id}:{agent_type}"
+                    if attempt == 0
+                    else f"{session_id}:{agent_type}:retry-{attempt}"
+                )
+            )
             outcome = self._invoke_with_timeout(
                 agent_type,
                 prompt,
-                f"{session_id}:{agent_type}"
-                if attempt == 0
-                else f"{session_id}:{agent_type}:retry-{attempt}",
+                attempt_session_id,
                 budget,
                 trace=trace,
                 attempt=attempt + 1,
+                timeout_seconds=min(
+                    self.specialist_timeout_seconds,
+                    remaining,
+                ),
+                remote_task_id=operation_task_id,
             )
+
             if outcome["status"] == "budget_exceeded":
                 outcome["attempts"] = attempt
                 return outcome
 
             outcome["attempts"] = attempt + 1
 
-            if outcome["status"] != "error" or not outcome.get("retryable", False):
-                return outcome
-            if attempt >= self.specialist_max_retries:
+            retryable = outcome["status"] in {"error", "timeout"} and bool(
+                outcome.get("retryable", False)
+            )
+            if not retryable or not policy.should_retry(attempt):
                 return outcome
 
-            backoff = self.specialist_retry_backoff_seconds * (2**attempt)
-            if backoff > 0:
-                time.sleep(backoff)
+            retry_after = outcome.get("retry_after_seconds")
+            delay = policy.delay(
+                attempt,
+                retry_after_seconds=(
+                    float(retry_after)
+                    if retry_after is not None
+                    else None
+                ),
+            )
+            remaining = deadline - time.monotonic()
+            if delay >= remaining:
+                outcome["retryable"] = False
+                outcome["retry_exhausted"] = "total_timeout"
+                return outcome
 
             if trace:
                 trace.record(
@@ -513,8 +594,14 @@ class MultiAgent:
                     agent_type,
                     "retrying",
                     attempt=attempt + 1,
-                    details={"backoff_seconds": backoff},
+                    details={
+                        "backoff_seconds": delay,
+                        "retry_after_seconds": retry_after,
+                        "remaining_timeout_seconds": remaining,
+                    },
                 )
+            if delay > 0:
+                time.sleep(delay)
 
         return {
             "agent": agent_type,

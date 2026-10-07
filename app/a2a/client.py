@@ -1,4 +1,5 @@
 import json
+from email.utils import parsedate_to_datetime
 from collections.abc import AsyncIterable
 from typing import Any
 
@@ -52,6 +53,26 @@ class A2AClient:
         else:
             raise ValueError("Provide either agent_card or url")
 
+    @staticmethod
+    def _retry_after_seconds(value: str | None) -> float | None:
+        if not value:
+            return None
+        try:
+            seconds = float(value.strip())
+            return max(0.0, seconds)
+        except ValueError:
+            try:
+                retry_at = parsedate_to_datetime(value)
+            except (TypeError, ValueError, OverflowError):
+                return None
+            if retry_at.tzinfo is None:
+                return None
+            from datetime import datetime, timezone
+            return max(
+                0.0,
+                (retry_at - datetime.now(timezone.utc)).total_seconds(),
+            )
+
     def _headers(self) -> dict[str, str]:
         if not self.api_key:
             return {}
@@ -94,7 +115,13 @@ class A2AClient:
                         except (json.JSONDecodeError, ValueError) as exc:
                             raise A2AClientJSONError(str(exc)) from exc
         except httpx.HTTPStatusError as exc:
-            raise A2AClientHTTPError(exc.response.status_code, str(exc)) from exc
+            raise A2AClientHTTPError(
+                exc.response.status_code,
+                str(exc),
+                retry_after_seconds=self._retry_after_seconds(
+                    exc.response.headers.get("Retry-After")
+                ),
+            ) from exc
         except httpx.RequestError as exc:
             raise A2AClientHTTPError(500, str(exc)) from exc
 

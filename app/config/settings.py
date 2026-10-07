@@ -180,6 +180,21 @@ class Settings:
         0.25,
         minimum=0.0,
     )
+    a2a_specialist_retry_max_backoff_seconds: float = _env_float(
+        "A2A_SPECIALIST_RETRY_MAX_BACKOFF_SECONDS",
+        5.0,
+        minimum=0.0,
+    )
+    a2a_specialist_retry_jitter_ratio: float = _env_float(
+        "A2A_SPECIALIST_RETRY_JITTER_RATIO",
+        0.25,
+        minimum=0.0,
+    )
+    a2a_specialist_total_timeout_seconds: float = _env_float(
+        "A2A_SPECIALIST_TOTAL_TIMEOUT_SECONDS",
+        90.0,
+        minimum=0.1,
+    )
     a2a_max_agent_calls_per_task: int = _env_int(
         "A2A_MAX_AGENT_CALLS_PER_TASK",
         6,

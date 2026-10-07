@@ -322,3 +322,32 @@ def test_remote_specialist_rejects_embedded_url_credentials(monkeypatch):
 
     with pytest.raises(ValueError, match="embedded credentials"):
         agent._ensure_client()
+
+
+def test_remote_specialist_reuses_supplied_task_id(monkeypatch):
+    created_clients = []
+
+    monkeypatch.setattr(
+        "app.routing.remote_specialist.A2ACardResolver",
+        FakeResolver,
+    )
+
+    def fake_client_factory(**kwargs):
+        client = FakeClient(response=None)
+        created_clients.append(client)
+        return client
+
+    monkeypatch.setattr(
+        "app.routing.remote_specialist.A2AClient",
+        fake_client_factory,
+    )
+
+    agent = RemoteA2ASpecialist(
+        agent_type="code",
+        url="https://127.0.0.1:8101",
+        api_key="secret",
+    )
+
+    agent.invoke("Implement this", "session-1", task_id="stable-task-1")
+    payload = created_clients[0].send_calls[0]
+    assert payload["id"] == "stable-task-1"

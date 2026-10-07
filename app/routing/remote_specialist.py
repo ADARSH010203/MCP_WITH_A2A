@@ -38,6 +38,10 @@ class RemoteA2ASpecialist:
         status_code = getattr(error, "status_code", None)
         return status_code in {408, 409, 425, 429, 500, 502, 503, 504}
 
+    @staticmethod
+    def _is_retryable_rpc_error(error: Any) -> bool:
+        return getattr(error, "code", None) == -32603
+
     def _validate_remote_origin(self) -> None:
         parsed = urlparse(self.url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
@@ -158,8 +162,13 @@ class RemoteA2ASpecialist:
             },
         }
 
-    def invoke(self, query: str, session_id: str) -> dict[str, Any]:
-        task_id = uuid4().hex
+    def invoke(
+        self,
+        query: str,
+        session_id: str,
+        task_id: str | None = None,
+    ) -> dict[str, Any]:
+        task_id = task_id or uuid4().hex
 
         async def call() -> dict[str, Any]:
             client = self._ensure_client()
@@ -174,7 +183,7 @@ class RemoteA2ASpecialist:
                     "execution_mode": "remote-a2a",
                     "remote_url": self.url,
                     "remote_task_id": task_id,
-                    "retryable": False,
+                    "retryable": self._is_retryable_rpc_error(response.error),
                 }
 
             task = response.result
@@ -226,6 +235,11 @@ class RemoteA2ASpecialist:
                 "remote_url": self.url,
                 "remote_task_id": task_id,
                 "retryable": self._is_retryable_error(exc),
+                "retry_after_seconds": getattr(
+                    exc,
+                    "retry_after_seconds",
+                    None,
+                ),
             }
 
     async def stream(
