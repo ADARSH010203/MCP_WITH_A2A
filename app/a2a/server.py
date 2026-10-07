@@ -18,6 +18,7 @@ from pydantic import ValidationError
 from sse_starlette.sse import EventSourceResponse
 
 from app.a2a.base_task_manager import TaskManager
+from app.a2a.readiness import ReadinessChecker
 from app.a2a.models import (
     A2ARequest,
     AgentCard,
@@ -215,18 +216,16 @@ class A2AServer:
         return JSONResponse(METRICS.snapshot())
 
     async def _readiness_check(self, _request: Request) -> JSONResponse:
-        ready = self.task_manager is not None and self.agent_card is not None
-        if ready:
-            readiness_check = getattr(self.task_manager, "is_ready", None)
-            if readiness_check is not None:
-                try:
-                    ready = bool(readiness_check())
-                except Exception:
-                    logging.getLogger(__name__).exception("A2A readiness check failed")
-                    ready = False
+        ready, checks = ReadinessChecker(
+            task_manager=self.task_manager,
+            agent_card=self.agent_card,
+        ).run()
 
         return JSONResponse(
-            {"status": "ready" if ready else "not_ready"},
+            {
+                "status": "ready" if ready else "not_ready",
+                "checks": checks,
+            },
             status_code=200 if ready else 503,
         )
 
