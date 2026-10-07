@@ -36,6 +36,61 @@ from app.a2a.models import (
 )
 from app.config.settings import settings
 from app.memory.context import use_memory_principal
+from app.observability.context import normalize_request_id, use_request_id
+from app.observability.metrics import METRICS
+
+
+class ObservabilityMiddleware(BaseHTTPMiddleware):
+    """Correlate requests and record bounded operational metrics."""
+
+    async def dispatch(self, request: Request, call_next):
+        request_id = normalize_request_id(request.headers.get("X-Request-ID"))
+        started = time.perf_counter()
+
+        with use_request_id(request_id):
+            try:
+                response = await call_next(request)
+            except Exception:
+                duration_ms = (time.perf_counter() - started) * 1000
+                METRICS.increment(
+                    "http_requests_total",
+                    labels={"method": request.method, "status": "500"},
+                )
+                METRICS.increment("http_requests_failed_total")
+                METRICS.observe("http_request_duration_ms", duration_ms)
+                logging.getLogger(__name__).exception(
+                    "a2a_request_failed",
+                    extra={
+                        "request_id": request_id,
+                        "method": request.method,
+                        "path": request.url.path,
+                        "duration_ms": round(duration_ms, 2),
+                    },
+                )
+                raise
+
+        duration_ms = (time.perf_counter() - started) * 1000
+        status = str(response.status_code)
+        METRICS.increment(
+            "http_requests_total",
+            labels={"method": request.method, "status": status},
+        )
+        METRICS.observe("http_request_duration_ms", duration_ms)
+        if response.status_code >= 500:
+            METRICS.increment("http_requests_failed_total")
+
+        response.headers["X-Request-ID"] = request_id
+        logging.getLogger(__name__).info(
+            "a2a_request_completed",
+            extra={
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "status": response.status_code,
+                "duration_ms": round(duration_ms, 2),
+            },
+        )
+        return response
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -77,6 +132,7 @@ class A2AServer:
             description="A2A Protocol JSON-RPC API",
             version="1.0.0",
         )
+        self.app.add_middleware(ObservabilityMiddleware)
         self.app.add_middleware(SecurityHeadersMiddleware)
         if getattr(settings, "a2a_cors_origins", ()):
             self.app.add_middleware(
@@ -110,6 +166,12 @@ class A2AServer:
             methods=["GET"],
             response_model=None,
         )
+        self.app.add_api_route(
+            "/metrics",
+            self._metrics_endpoint,
+            methods=["GET"],
+            response_model=None,
+        )
 
     def start(self) -> None:
         """Start the ASGI application with Uvicorn."""
@@ -129,6 +191,28 @@ class A2AServer:
 
     async def _health_check(self, _request: Request) -> JSONResponse:
         return JSONResponse({"status": "ok"})
+
+    async def _metrics_endpoint(self, request: Request) -> JSONResponse:
+        if settings.a2a_api_key:
+            authorization = request.headers.get("Authorization", "")
+            scheme, _, credentials = authorization.partition(" ")
+            presented = (
+                credentials.strip()
+                if scheme.casefold() == "bearer"
+                else ""
+            )
+            if not secrets.compare_digest(presented, settings.a2a_api_key):
+                return JSONResponse(
+                    JSONRPCResponse(
+                        id=None,
+                        error=InvalidRequestError(
+                            message="Authentication required"
+                        ),
+                    ).model_dump(exclude_none=True),
+                    status_code=401,
+                )
+
+        return JSONResponse(METRICS.snapshot())
 
     async def _readiness_check(self, _request: Request) -> JSONResponse:
         ready = self.task_manager is not None and self.agent_card is not None
