@@ -112,6 +112,14 @@ class MultiAgent:
         self.critic = critic
         self.critic_factory = critic_factory
         self.planner = planner or CollaborationPlanner()
+        self.capability_authorizer = CapabilityAuthorizer(
+            self.AGENT_REGISTRY,
+            authorized_agents=(
+                authorized_agents
+                if authorized_agents is not None
+                else getattr(settings, "a2a_allowed_agents", None) or None
+            ),
+        )
         self.semantic_router = semantic_router or SemanticRouter(
             self.AGENT_REGISTRY,
             model_name=getattr(
