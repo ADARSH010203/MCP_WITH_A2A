@@ -196,3 +196,28 @@ def test_memory_scope_context_switches_principal(tmp_path):
     assert memory.recent("tenant-a", "s", "code") == [("user", "A")]
     assert memory.recent("tenant-b", "s", "code") == [("user", "B")]
     memory.close()
+
+
+def test_base_agent_reads_request_scoped_principal(tmp_path):
+    from app.agents.base import BaseAgent
+
+    agent = BaseAgent.__new__(BaseAgent)
+    agent.memory_agent_type = "code"
+    agent.memory_store = SQLiteConversationMemory(
+        str(tmp_path / "memory.db"),
+        namespace_secret="test-secret",
+    )
+    agent.memory_store.append(
+        "tenant-a", "s", "code", "user", "tenant A context"
+    )
+    agent.memory_store.append(
+        "tenant-b", "s", "code", "user", "tenant B context"
+    )
+
+    with use_memory_principal("tenant-a"):
+        assert "tenant A context" in agent._memory_context("s")
+        assert "tenant B context" not in agent._memory_context("s")
+    with use_memory_principal("tenant-b"):
+        assert "tenant B context" in agent._memory_context("s")
+        assert "tenant A context" not in agent._memory_context("s")
+    agent.memory_store.close()
