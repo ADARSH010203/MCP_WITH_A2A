@@ -69,6 +69,51 @@ class Settings:
     )
     a2a_allowed_agents: tuple[str, ...] = field(default_factory=tuple, init=False)
     mcp_url: str = os.getenv("MCP_URL", "http://127.0.0.1:3000/sse")
+    mcp_sandbox_root: str = os.getenv(
+        "MCP_SANDBOX_ROOT",
+        "/app/workspace",
+    )
+    mcp_allowed_tools: tuple[str, ...] = field(default_factory=tuple, init=False)
+    mcp_max_file_bytes: int = _env_int(
+        "MCP_MAX_FILE_BYTES",
+        2_000_000,
+        minimum=1024,
+    )
+    mcp_max_output_chars: int = _env_int(
+        "MCP_MAX_OUTPUT_CHARS",
+        20_000,
+        minimum=100,
+    )
+    mcp_max_search_query_chars: int = _env_int(
+        "MCP_MAX_SEARCH_QUERY_CHARS",
+        200,
+        minimum=1,
+    )
+    mcp_max_search_results: int = _env_int(
+        "MCP_MAX_SEARCH_RESULTS",
+        500,
+        minimum=1,
+    )
+    mcp_default_page_size: int = _env_int(
+        "MCP_DEFAULT_PAGE_SIZE",
+        25,
+        minimum=1,
+    )
+    mcp_max_page_size: int = _env_int(
+        "MCP_MAX_PAGE_SIZE",
+        100,
+        minimum=1,
+    )
+    mcp_max_csv_rows: int = _env_int(
+        "MCP_MAX_CSV_ROWS",
+        10_000,
+        minimum=1,
+    )
+    mcp_max_csv_columns: int = _env_int(
+        "MCP_MAX_CSV_COLUMNS",
+        100,
+        minimum=1,
+    )
     a2a_public_url: str = os.getenv("A2A_PUBLIC_URL", "")
     a2a_cors_origins: tuple[str, ...] = field(default_factory=tuple, init=False)
     a2a_specialist_urls: dict[str, str] = field(default_factory=dict, init=False)
@@ -210,6 +255,11 @@ class Settings:
     )
 
 
+def _load_mcp_allowed_tools() -> tuple[str, ...]:
+    raw = os.getenv("MCP_ALLOWED_TOOLS", "")
+    return tuple(item.strip() for item in raw.split(",") if item.strip())
+
+
 def _load_specialist_urls() -> dict[str, str]:
     raw = os.getenv("A2A_SPECIALIST_URLS", "")
     if not raw.strip():
@@ -286,6 +336,7 @@ def _load_cors_origins() -> tuple[str, ...]:
 
 
 settings = Settings()
+object.__setattr__(settings, "mcp_allowed_tools", _load_mcp_allowed_tools())
 object.__setattr__(settings, "a2a_specialist_urls", _load_specialist_urls())
 object.__setattr__(settings, "a2a_specialist_api_keys", _load_specialist_api_keys())
 object.__setattr__(settings, "a2a_allowed_agents", _load_allowed_agents())
