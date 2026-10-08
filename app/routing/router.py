@@ -1005,6 +1005,7 @@ class MultiAgent:
     ) -> dict[str, Any]:
         agent_types = list(plan.agents)
         budget = CallBudget(self.max_agent_calls_per_task)
+        cost_budget = CostBudget(self.cost_policy)
         outcomes: list[dict[str, Any]] = []
 
         specialist_groups = sorted(
@@ -1044,6 +1045,7 @@ class MultiAgent:
                     session_id,
                     budget=budget,
                     trace=trace,
+                    cost_budget=cost_budget,
                 )
                 outcomes.extend(independent_outcomes)
 
@@ -1062,6 +1064,7 @@ class MultiAgent:
                     upstream_findings=upstream,
                     budget=budget,
                     trace=trace,
+                    cost_budget=cost_budget,
                 )
                 outcomes.append(outcome)
                 trace.record(
@@ -1114,6 +1117,7 @@ class MultiAgent:
             outcomes,
             budget,
             trace=trace,
+            cost_budget=cost_budget,
         )
         if synthesis.get("status") in {"budget_exceeded", "timeout", "error"}:
             fallback = "\n\n".join(
@@ -1133,6 +1137,7 @@ class MultiAgent:
                 "critic_reviewed": False,
                 "collaboration_plan": plan.to_dict(),
                 "collaboration_trace": trace.snapshot(),
+                "cost": cost_budget.snapshot(),
             }
 
         if needs_input and synthesis.get("status") == "completed":
