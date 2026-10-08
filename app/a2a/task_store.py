@@ -222,6 +222,31 @@ class SQLiteTaskStore:
             for task_id, payload in rows
         }
 
+    def create_task_if_absent(self, task: Task) -> tuple[Task, bool]:
+        """Atomically create a task, returning the durable winner on races."""
+        payload = task.model_dump_json()
+        with self._lock:
+            cursor = self.connection.execute(
+                """
+                INSERT OR IGNORE INTO tasks (id, payload)
+                VALUES (?, ?)
+                """,
+                (task.id, payload),
+            )
+            self.connection.commit()
+
+            if cursor.rowcount == 1:
+                return task, True
+
+            row = self.connection.execute(
+                "SELECT payload FROM tasks WHERE id = ?",
+                (task.id,),
+            ).fetchone()
+
+        if row is None:
+            raise RuntimeError(f"Task {task.id} disappeared after creation race")
+        return Task.model_validate_json(row[0]), False
+
     def save_task(self, task: Task) -> None:
         payload = task.model_dump_json()
         with self._lock:
