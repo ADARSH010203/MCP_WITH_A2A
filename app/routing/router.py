@@ -563,6 +563,7 @@ class MultiAgent:
         session_id: str,
         budget: CallBudget,
         trace: CollaborationTrace | None = None,
+        cost_budget: CostBudget | None = None,
     ) -> dict[str, Any]:
         policy = RetryPolicy(
             max_retries=self.specialist_max_retries,
@@ -606,9 +607,13 @@ class MultiAgent:
                     remaining,
                 ),
                 remote_task_id=operation_task_id,
+                cost_budget=cost_budget,
             )
 
-            if outcome["status"] == "budget_exceeded":
+            if outcome["status"] == "budget_exceeded" or outcome.get(
+                "cost_budget_exceeded",
+                False,
+            ):
                 outcome["attempts"] = attempt
                 return outcome
 
@@ -877,6 +882,7 @@ class MultiAgent:
         upstream_findings: list[dict[str, Any]] | None = None,
         budget: CallBudget | None = None,
         trace: CollaborationTrace | None = None,
+        cost_budget: CostBudget | None = None,
     ) -> dict[str, Any]:
         active_budget = budget or CallBudget(self.max_agent_calls_per_task)
         prompt = self._build_subtask(query, agent_type, upstream_findings)
@@ -886,6 +892,7 @@ class MultiAgent:
             session_id,
             active_budget,
             trace=trace,
+            cost_budget=cost_budget,
         )
 
     def _run_specialist_safely(
@@ -896,6 +903,7 @@ class MultiAgent:
         upstream_findings: list[dict[str, Any]] | None = None,
         budget: CallBudget | None = None,
         trace: CollaborationTrace | None = None,
+        cost_budget: CostBudget | None = None,
     ) -> dict[str, Any]:
         try:
             return self._run_specialist(
@@ -905,6 +913,7 @@ class MultiAgent:
                 upstream_findings,
                 budget,
                 trace,
+                cost_budget,
             )
         except Exception as exc:
             if trace:
@@ -930,6 +939,7 @@ class MultiAgent:
         upstream_findings: list[dict[str, Any]] | None = None,
         budget: CallBudget | None = None,
         trace: CollaborationTrace | None = None,
+        cost_budget: CostBudget | None = None,
     ) -> list[dict[str, Any]]:
         if not agent_types:
             return []
@@ -949,6 +959,7 @@ class MultiAgent:
                     upstream_findings,
                     active_budget,
                     trace,
+                    cost_budget,
                 )
                 for agent_type in agent_types
             ]
