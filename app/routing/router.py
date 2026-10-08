@@ -1497,6 +1497,29 @@ class MultiAgent:
         )
         budget = CallBudget(self.max_agent_calls_per_task)
         cost_budget = CostBudget(self.cost_policy)
+        reservation_key = self._admit_budget(query, plan, trace)
+
+        if (
+            self.cost_governance is not None
+            and settings.a2a_budget_admission_enabled
+            and reservation_key is None
+        ):
+            yield {
+                "is_task_complete": False,
+                "require_user_input": False,
+                "status": "budget_rejected",
+                "content": (
+                    "The request was rejected before model execution because "
+                    "the principal budget has insufficient reserved capacity."
+                ),
+                "agents_used": [],
+                "collaboration_mode": plan.mode,
+                "critic_reviewed": False,
+                "collaboration_plan": plan.to_dict(),
+                "cost": cost_budget.snapshot(),
+                "collaboration_trace": trace.snapshot(),
+            }
+            return
 
         if plan.mode == "single-agent":
             agent_type = plan.agents[0]
@@ -1526,6 +1549,7 @@ class MultiAgent:
                         (time.perf_counter() - started) * 1000,
                     )
                     response = self._record_cost_ledger(trace, response)
+                    self._release_budget(reservation_key)
 
                 response["cost"] = {
                     **cost_budget.snapshot(),
@@ -1727,6 +1751,7 @@ class MultiAgent:
                 "cost": cost_budget.snapshot(),
             }
             final_response = self._record_cost_ledger(trace, final_response)
+            self._release_budget(reservation_key)
             final_response["cost"] = {
                 **cost_budget.snapshot(),
                 **(
@@ -1756,6 +1781,7 @@ class MultiAgent:
             "cost": cost_budget.snapshot(),
         }
         final_response = self._record_cost_ledger(trace, final_response)
+        self._release_budget(reservation_key)
         final_response["cost"] = {
             **cost_budget.snapshot(),
             **(
