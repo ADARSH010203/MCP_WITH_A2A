@@ -445,14 +445,14 @@ class AgentTaskManager(InMemoryTaskManager):
         )
         self.active_task_ids.add(request.params.id)
 
-        task = await self.update_store(
-            request.params.id,
-            TaskStatus(state=TaskState.WORKING),
-            [],
-        )
-        await self.send_task_notification(task)
-
         try:
+            task = await self.update_store(
+                request.params.id,
+                TaskStatus(state=TaskState.WORKING),
+                [],
+            )
+            await self.send_task_notification(task)
+
             query = self._get_user_query(request.params)
             async with self.execution_semaphore:
                 agent_response = await asyncio.to_thread(
@@ -460,6 +460,8 @@ class AgentTaskManager(InMemoryTaskManager):
                     query,
                     request.params.sessionId,
                 )
+
+            return await self._process_agent_response(request, agent_response)
         except Exception:
             logging.getLogger(__name__).exception(
                 "Agent invocation failed for task %s", request.params.id
