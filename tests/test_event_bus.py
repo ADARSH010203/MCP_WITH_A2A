@@ -60,7 +60,7 @@ def test_sse_event_round_trip():
 def test_event_bus_bridges_events_between_worker_managers():
     async def scenario():
         manager_one = ConcreteTaskManager(store=SQLiteTaskStore(":memory:"))
-        manager_two = InMemoryTaskManager(store=SQLiteTaskStore(":memory:"))
+        manager_two = ConcreteTaskManager(store=SQLiteTaskStore(":memory:"))
         bus = FakeEventBus()
         manager_one.event_bus = bus
         manager_two.event_bus = bus
@@ -96,7 +96,7 @@ def test_event_bus_startup_is_fail_closed():
             return False
 
     async def scenario():
-        manager = InMemoryTaskManager(store=SQLiteTaskStore(":memory:"))
+        manager = ConcreteTaskManager(store=SQLiteTaskStore(":memory:"))
         manager.event_bus = UnhealthyBus()
 
         with pytest.raises(RuntimeError, match="event bus is unavailable"):
