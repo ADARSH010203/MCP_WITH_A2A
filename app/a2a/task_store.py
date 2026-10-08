@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from app.a2a.models import PushNotificationConfig, Task
+from app.a2a.models import PushNotificationConfig, Task, TaskState
 
 
 class SQLiteTaskStore:
@@ -188,6 +188,39 @@ class SQLiteTaskStore:
             and row[0] != worker_id
             and float(row[1]) > now
         )
+
+    def list_recoverable_tasks(self, limit: int) -> list[Task]:
+        """Return submitted/working tasks with no live worker lease."""
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        now = time.time()
+        with self._lock:
+            rows = self.connection.execute(
+                "SELECT id, payload FROM tasks"
+            ).fetchall()
+            leases = {
+                task_id: float(lease_until)
+                for task_id, lease_until in self.connection.execute(
+                    "SELECT task_id, lease_until FROM task_leases"
+                ).fetchall()
+            }
+
+        recoverable: list[Task] = []
+        for task_id, payload in rows:
+            if leases.get(task_id, 0.0) > now:
+                continue
+            try:
+                task = Task.model_validate_json(payload)
+            except ValueError:
+                continue
+            if task.status.state not in {TaskState.SUBMITTED, TaskState.WORKING}:
+                continue
+            recoverable.append(task)
+
+        recoverable.sort(
+            key=lambda item: item.status.timestamp,
+        )
+        return recoverable[:limit]
 
     def purge_expired_leases(self) -> int:
         """Delete expired task leases."""

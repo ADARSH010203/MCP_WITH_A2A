@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 import psycopg
 
-from app.a2a.models import PushNotificationConfig, Task
+from app.a2a.models import PushNotificationConfig, Task, TaskState
 
 
 class PostgresTaskStore:
@@ -209,6 +209,38 @@ class PostgresTaskStore:
             )
         self.connection.commit()
         return len(expired_ids)
+
+    def list_recoverable_tasks(self, limit: int) -> list[Task]:
+        """Return submitted/working tasks with no live worker lease."""
+        if limit < 1:
+            raise ValueError("limit must be positive")
+
+        now = time.time()
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT t.id, t.payload
+                FROM tasks AS t
+                LEFT JOIN task_leases AS l
+                  ON l.task_id = t.id
+                WHERE (l.task_id IS NULL OR l.lease_until <= %s)
+                ORDER BY (t.payload::jsonb->'status'->>'timestamp')::timestamptz
+                LIMIT %s
+                """,
+                (now, limit),
+            )
+            rows = cursor.fetchall()
+
+        recoverable: list[Task] = []
+        for _, payload in rows:
+            try:
+                task = Task.model_validate_json(payload)
+            except ValueError:
+                continue
+            if task.status.state in {TaskState.SUBMITTED, TaskState.WORKING}:
+                recoverable.append(task)
+
+        return recoverable
 
     def purge_expired_leases(self) -> int:
         now = time.time()

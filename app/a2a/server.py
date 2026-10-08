@@ -133,6 +133,8 @@ class A2AServer:
             description="A2A Protocol JSON-RPC API",
             version="1.0.0",
         )
+        self.app.add_event_handler("startup", self._startup)
+        self.app.add_event_handler("shutdown", self._shutdown)
         self.app.add_middleware(ObservabilityMiddleware)
         self.app.add_middleware(SecurityHeadersMiddleware)
         if getattr(settings, "a2a_cors_origins", ()):
@@ -173,6 +175,24 @@ class A2AServer:
             methods=["GET"],
             response_model=None,
         )
+
+    async def _startup(self) -> None:
+        start_recovery = getattr(
+            self.task_manager,
+            "start_recovery_worker",
+            None,
+        )
+        if start_recovery is not None:
+            await start_recovery()
+
+    async def _shutdown(self) -> None:
+        stop_recovery = getattr(
+            self.task_manager,
+            "stop_recovery_worker",
+            None,
+        )
+        if stop_recovery is not None:
+            await stop_recovery()
 
     def start(self) -> None:
         """Start the ASGI application with Uvicorn."""
