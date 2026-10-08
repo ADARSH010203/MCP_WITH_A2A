@@ -162,6 +162,26 @@ class Settings:
         1_000_000,
         minimum=1024,
     )
+    otel_enabled: bool = _env_bool(
+        "OTEL_ENABLED",
+        True,
+    )
+    otel_service_name: str = os.getenv(
+        "OTEL_SERVICE_NAME",
+        "mcp-a2a-agent",
+    ).strip()
+    otel_exporter_otlp_endpoint: str = os.getenv(
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+        "",
+    ).strip()
+    otel_exporter_otlp_headers: str = os.getenv(
+        "OTEL_EXPORTER_OTLP_HEADERS",
+        "",
+    ).strip()
+    prometheus_metrics_enabled: bool = _env_bool(
+        "PROMETHEUS_METRICS_ENABLED",
+        True,
+    )
     a2a_task_store_backend: str = os.getenv(
         "A2A_TASK_STORE_BACKEND",
         "sqlite",
