@@ -8,6 +8,14 @@ from app.a2a.models import TaskStatus, TaskStatusUpdateEvent, TaskState
 from app.a2a.task_store import SQLiteTaskStore
 
 
+class ConcreteTaskManager(InMemoryTaskManager):
+    async def on_send_task(self, request):
+        return None
+
+    async def on_send_task_subscribe(self, request):
+        return None
+
+
 class FakeEventBus:
     def __init__(self):
         self.channels = defaultdict(list)
@@ -40,8 +48,8 @@ def test_sse_event_round_trip():
         status=TaskStatus(state=TaskState.COMPLETED),
         final=True,
     )
-    payload = InMemoryTaskManager._serialize_sse_event(event)
-    restored = InMemoryTaskManager._deserialize_sse_event(payload)
+    payload = ConcreteTaskManager._serialize_sse_event(event)
+    restored = ConcreteTaskManager._deserialize_sse_event(payload)
 
     assert isinstance(restored, TaskStatusUpdateEvent)
     assert restored.id == "task-1"
@@ -51,7 +59,7 @@ def test_sse_event_round_trip():
 
 def test_event_bus_bridges_events_between_worker_managers():
     async def scenario():
-        manager_one = InMemoryTaskManager(store=SQLiteTaskStore(":memory:"))
+        manager_one = ConcreteTaskManager(store=SQLiteTaskStore(":memory:"))
         manager_two = InMemoryTaskManager(store=SQLiteTaskStore(":memory:"))
         bus = FakeEventBus()
         manager_one.event_bus = bus
