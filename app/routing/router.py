@@ -691,6 +691,14 @@ class MultiAgent:
         trace: CollaborationTrace | None = None,
         cost_budget: CostBudget | None = None,
     ) -> dict[str, Any]:
+        if cost_budget is not None and cost_budget.exceeded:
+            return {
+                "status": "budget_exceeded",
+                "content": "LLM token/cost budget exhausted before critic synthesis.",
+                "critic_reviewed": False,
+                "cost_budget_exceeded": True,
+            }
+
         if not budget.reserve():
             result = {
                 "status": "budget_exceeded",
