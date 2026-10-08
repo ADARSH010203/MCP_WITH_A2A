@@ -150,7 +150,7 @@ class InMemoryTaskManager(TaskManager):
 
     async def set_push_notification_info(
         self, task_id: str, notification_config: PushNotificationConfig
-    ):
+    ) -> bool:
         async with self.lock:
             task = self.tasks.get(task_id)
             if task is None:
@@ -163,7 +163,7 @@ class InMemoryTaskManager(TaskManager):
                 notification_config,
             )
 
-        return
+        return True
 
     async def get_push_notification_info(self, task_id: str) -> PushNotificationConfig:
         async with self.lock:
