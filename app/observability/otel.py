@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+import atexit
 from collections.abc import Iterator
+from contextlib import contextmanager
+from threading import Lock
 from typing import Any
 
 from opentelemetry import trace
@@ -14,6 +16,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 _PROVIDER: TracerProvider | None = None
 _INITIALIZED = False
+_LOCK = Lock()
 
 
 def _parse_headers(raw: str) -> dict[str, str]:
@@ -30,16 +33,17 @@ def _parse_headers(raw: str) -> dict[str, str]:
 def initialize_telemetry() -> None:
     """Initialize the process tracer once, optionally exporting over OTLP."""
     global _INITIALIZED, _PROVIDER
-    if _INITIALIZED:
-        return
+    with _LOCK:
+        if _INITIALIZED:
+            return
 
-    from app.config.settings import settings
+        from app.config.settings import settings
 
-    if not settings.otel_enabled:
-        _INITIALIZED = True
-        return
+        if not settings.otel_enabled:
+            _INITIALIZED = True
+            return
 
-    provider = TracerProvider(
+        provider = TracerProvider(
         resource=Resource.create(
             {
                 "service.name": settings.otel_service_name,
@@ -64,18 +68,19 @@ def initialize_telemetry() -> None:
         )
         provider.add_span_processor(BatchSpanProcessor(exporter))
 
-    trace.set_tracer_provider(provider)
-    _PROVIDER = provider
-    _INITIALIZED = True
+        trace.set_tracer_provider(provider)
+        _PROVIDER = provider
+        _INITIALIZED = True
 
 
 def shutdown_telemetry() -> None:
-    """Flush and shut down the configured tracer provider."""
-    global _INITIALIZED, _PROVIDER
-    if _PROVIDER is not None:
-        _PROVIDER.shutdown()
-    _PROVIDER = None
-    _INITIALIZED = False
+    """Flush the process-global tracer provider at process exit."""
+    provider = _PROVIDER
+    if provider is not None:
+        provider.shutdown()
+
+
+atexit.register(shutdown_telemetry)
 
 
 def get_tracer(name: str = "mcp-a2a") -> trace.Tracer:
