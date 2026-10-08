@@ -94,6 +94,7 @@ class InMemoryTaskManager(TaskManager):
         self.task_sse_subscribers: dict[str, list[asyncio.Queue]] = {}
         self.subscriber_lock = asyncio.Lock()
         self.event_bus: EventBus | None = build_event_bus()
+        self.event_bus_ready = self.event_bus is None
         self.event_bridge_tasks: dict[int, asyncio.Task[None]] = {}
 
     def is_ready(self) -> bool:
@@ -306,8 +307,10 @@ class InMemoryTaskManager(TaskManager):
     async def start_event_bus(self) -> None:
         """Validate the distributed event transport before serving traffic."""
         if self.event_bus is None:
+            self.event_bus_ready = True
             return
-        if not await self.event_bus.ping():
+        self.event_bus_ready = await self.event_bus.ping()
+        if not self.event_bus_ready:
             raise RuntimeError("Configured A2A event bus is unavailable.")
 
     async def stop_event_bus(self) -> None:
@@ -321,11 +324,17 @@ class InMemoryTaskManager(TaskManager):
 
         if self.event_bus is not None:
             await self.event_bus.close()
+        self.event_bus_ready = False
 
     @staticmethod
     def _serialize_sse_event(event) -> dict[str, object]:
+        event_type = (
+            "JSONRPCError"
+            if isinstance(event, JSONRPCError)
+            else event.__class__.__name__
+        )
         return {
-            "type": event.__class__.__name__,
+            "type": event_type,
             "payload": event.model_dump(mode="json"),
         }
 
