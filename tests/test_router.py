@@ -715,3 +715,52 @@ def test_router_stops_after_task_token_budget_is_exceeded():
     assert result["cost"]["budget_exceeded"] is True
     assert result["cost"]["total_tokens"] == 120
     assert agent.calls == 1
+
+
+
+def test_router_persists_final_cost_attribution(tmp_path):
+    from app.memory.context import use_memory_principal
+    from app.observability.cost_ledger import CostGovernance, _SQLiteCostLedger
+
+    class CostedAgent:
+        def invoke(self, query, session_id):
+            return {
+                "status": "completed",
+                "is_task_complete": True,
+                "require_user_input": False,
+                "content": "answer",
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 5,
+                },
+            }
+
+        async def stream(self, query, session_id):
+            yield {
+                "status": "completed",
+                "is_task_complete": True,
+                "require_user_input": False,
+                "content": "answer",
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 5,
+                },
+            }
+
+    ledger = _SQLiteCostLedger(
+        str(tmp_path / "cost.db"),
+        "test-secret",
+    )
+    router = MultiAgent(agents={"currency": CostedAgent()})
+    router.cost_governance = CostGovernance(ledger)
+
+    with use_memory_principal("tenant-a"):
+        result = router.invoke(
+            "What is the exchange rate between USD and EUR?",
+            "cost-ledger-session",
+        )
+
+    assert result["cost"]["ledger"]["recorded"] is True
+    assert result["cost"]["ledger"]["daily"]["total_tokens"] == 15
+    assert result["cost"]["ledger"]["daily"]["tasks"] == 1
+    ledger.close()
