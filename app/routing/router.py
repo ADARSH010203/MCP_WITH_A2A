@@ -1176,6 +1176,7 @@ class MultiAgent:
             },
         )
         budget = CallBudget(self.max_agent_calls_per_task)
+        cost_budget = CostBudget(self.cost_policy)
 
         if plan.mode == "single-agent":
             agent_type = plan.agents[0]
@@ -1196,14 +1197,14 @@ class MultiAgent:
                 result.get("status") == "input_required",
             )
             result.setdefault("collaboration_plan", plan.to_dict())
+            result["cost"] = cost_budget.snapshot()
             trace.record(
                 "request_completed",
                 "coordinator",
                 str(result.get("status", "error")),
                 (time.perf_counter() - started) * 1000,
             )
-            result["cost"] = result.get("cost", cost_budget.snapshot())
-        result["collaboration_trace"] = trace.snapshot()
+            result["collaboration_trace"] = trace.snapshot()
             return result
 
         result = self._run_collaboration(query, session_id, plan, trace)
@@ -1234,6 +1235,7 @@ class MultiAgent:
             },
         )
         budget = CallBudget(self.max_agent_calls_per_task)
+        cost_budget = CostBudget(self.cost_policy)
 
         if plan.mode == "single-agent":
             agent_type = plan.agents[0]
@@ -1243,6 +1245,7 @@ class MultiAgent:
                 session_id,
                 budget,
                 trace,
+                cost_budget,
             ):
                 response.setdefault("agents_used", [agent_type])
                 response.setdefault("collaboration_mode", "single-agent")
@@ -1258,6 +1261,7 @@ class MultiAgent:
                         str(response.get("status", "completed")),
                         (time.perf_counter() - started) * 1000,
                     )
+                response["cost"] = cost_budget.snapshot()
                 response["collaboration_trace"] = trace.snapshot()
                 yield response
             return
