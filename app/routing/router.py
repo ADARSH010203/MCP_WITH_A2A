@@ -26,6 +26,7 @@ from app.routing.capability import CapabilityAuthorizer, CapabilityAuthorization
 from app.routing.planner import CollaborationPlan, CollaborationPlanner
 from app.routing.registry import DEFAULT_AGENT_REGISTRY
 from app.routing.remote_specialist import RemoteA2ASpecialist
+from app.observability.cost import CostBudget, CostPolicy, TokenUsage
 from app.observability.otel import span
 from app.routing.retry import RetryPolicy
 from app.routing.semantic import SemanticRouter, SemanticRoutingError
@@ -181,6 +182,14 @@ class MultiAgent:
             90.0,
         )
         self.max_agent_calls_per_task = settings.a2a_max_agent_calls_per_task
+        self.cost_policy = CostPolicy(
+            input_usd_per_1m_tokens=settings.a2a_cost_input_usd_per_1m_tokens,
+            output_usd_per_1m_tokens=settings.a2a_cost_output_usd_per_1m_tokens,
+            max_total_tokens_per_task=settings.a2a_max_total_tokens_per_task,
+            max_estimated_cost_usd_per_task=(
+                settings.a2a_max_estimated_cost_usd_per_task
+            ),
+        )
         self._agent_lock = threading.Lock()
 
     @staticmethod
