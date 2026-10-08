@@ -39,7 +39,7 @@ from app.config.settings import settings
 from app.memory.context import use_memory_principal
 from app.observability.context import normalize_request_id, use_request_id
 from app.observability.metrics import METRICS
-from app.observability.otel import initialize_telemetry, shutdown_telemetry, span
+from app.observability.otel import initialize_telemetry, span
 
 
 class ObservabilityMiddleware(BaseHTTPMiddleware):
@@ -59,6 +59,10 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
                     },
                 ) as http_span:
                     response = await call_next(request)
+                    http_span.set_attribute(
+                        "http.status_code",
+                        response.status_code,
+                    )
                     span_context = http_span.get_span_context()
             except Exception:
                 duration_ms = (time.perf_counter() - started) * 1000
@@ -222,7 +226,6 @@ class A2AServer:
         )
         if stop_event_bus is not None:
             await stop_event_bus()
-        shutdown_telemetry()
 
     def start(self) -> None:
         """Start the ASGI application with Uvicorn."""
