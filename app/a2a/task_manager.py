@@ -240,9 +240,32 @@ class AgentTaskManager(InMemoryTaskManager):
         finally:
             self.streaming_tasks.pop(task_id, None)
 
-    async def _run_streaming_agent(self, request: SendTaskStreamingRequest) -> None:
-        task_send_params = request.params
-        query = self._get_user_query(task_send_params)
+            await self.enqueue_events_for_sse(
+                task_send_params.id,
+                TaskStatusUpdateEvent(
+                    id=task_send_params.id,
+                    status=failure_status,
+                    final=True,
+                ),
+            )
+
+        finally:
+            heartbeat.cancel()
+            await asyncio.gather(heartbeat, return_exceptions=True)
+            await self._release_task(task_send_params.id)
+
+     await self.enqueue_events_for_sse(
+                task_send_params.id,
+                InternalError(
+                    message="Task is being executed by another worker.",
+                ),
+            )
+            return
+
+        heartbeat = asyncio.create_task(
+            self._lease_heartbeat(task_send_params.id),
+            name=f"task-heartbeat-{task_send_params.id}",
+        )
 
         try:
             async with self.execution_semaphore:
@@ -431,7 +454,8 @@ class AgentTaskManager(InMemoryTaskManager):
             return SendTaskResponse(
                 id=request.id,
                 result=self.append_task_history(
-                    existing_task, request.params.historyLength
+                    existing_task,
+                    request.params.historyLength,
                 ),
             )
 
@@ -448,7 +472,8 @@ class AgentTaskManager(InMemoryTaskManager):
             return SendTaskResponse(
                 id=request.id,
                 result=self.append_task_history(
-                    current, request.params.historyLength
+                    current,
+                    request.params.historyLength,
                 ),
             )
 
@@ -457,38 +482,38 @@ class AgentTaskManager(InMemoryTaskManager):
             name=f"task-heartbeat-{request.params.id}",
         )
 
-        if created and request.params.pushNotification:
-            verified = await self.set_push_notification_info(
-                request.params.id, request.params.pushNotification
-            )
-            if not verified:
-                failure_status = TaskStatus(
-                    state=TaskState.FAILED,
-                    message=Message(
-                        role="agent",
-                        parts=[
-                            {
-                                "type": "text",
-                                "text": "Push notification endpoint verification failed.",
-                            }
-                        ],
-                    ),
-                )
-                task = await self.update_store(request.params.id, failure_status, [])
-                return SendTaskResponse(
-                    id=request.id,
-                    result=self.append_task_history(
-                        task, request.params.historyLength
-                    ),
-                )
-
-        task = await self.update_store(
-            request.params.id, TaskStatus(state=TaskState.WORKING), []
-        )
-        await self.send_task_notification(task)
-
         try:
-            query = self._get_user_query(request.params)
+            if created and request.params.pushNotification:
+                verified = await self.set_push_notification_info(
+                    request.params.id,
+                    request.params.pushNotification,
+                )
+                if not verified:
+                    failure_status = TaskStatus(
+                        state=TaskState.FAILED,
+                        message=Message(
+                            role="agent",
+                            parts=[
+                                {
+                                    "type": "text",
+                                    "text": "Push notification endpoint verification failed.",
+                                }
+                            ],
+                        ),
+                    )
+                    task = await self.update_store(
+                        request.params.id,
+                        failure_status,
+                        [],
+                    )
+                    return SendTaskResponse(
+                        id=request.id,
+                        result=self.append_task_history(
+                            task,
+                            request.params.historyLength,
+                        ),
+                    )
+
             task = await self.update_store(
                 request.params.id,
                 TaskStatus(state=TaskState.WORKING),
@@ -496,37 +521,42 @@ class AgentTaskManager(InMemoryTaskManager):
             )
             await self.send_task_notification(task)
 
-            async with self.execution_semaphore:
-                agent_response = await asyncio.to_thread(
-                    self.agent.invoke,
-                    query,
-                    request.params.sessionId,
+            try:
+                query = self._get_user_query(request.params)
+                async with self.execution_semaphore:
+                    agent_response = await asyncio.to_thread(
+                        self.agent.invoke,
+                        query,
+                        request.params.sessionId,
+                    )
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Agent invocation failed for task %s",
+                    request.params.id,
                 )
-        except Exception:
-            logging.getLogger(__name__).exception(
-                "Agent invocation failed for task %s", request.params.id
-            )
-            failure_status = TaskStatus(
-                state=TaskState.FAILED,
-                message=Message(
-                    role="agent",
-                    parts=[
-                        {
-                            "type": "text",
-                            "text": "An error occurred while processing the task.",
-                        }
-                    ],
-                ),
-            )
-            task = await self.update_store(request.params.id, failure_status, [])
-            await self.send_task_notification(task)
-            return SendTaskResponse(id=request.id, result=task)
-        finally:
-            heartbeat.cancel()
-            await asyncio.gather(heartbeat, return_exceptions=True)
-            await self._release_task(request.params.id)
+                failure_status = TaskStatus(
+                    state=TaskState.FAILED,
+                    message=Message(
+                        role="agent",
+                        parts=[
+                            {
+                                "type": "text",
+                                "text": "An error occurred while processing the task.",
+                            }
+                        ],
+                    ),
+                )
+                task = await self.update_store(
+                    request.params.id,
+                    failure_status,
+                    [],
+                )
+                await self.send_task_notification(task)
+                return SendTaskResponse(
+                    id=request.id,
+                    result=task,
+                )
 
-        try:
             return await self._process_agent_response(request, agent_response)
         finally:
             heartbeat.cancel()
