@@ -64,6 +64,11 @@ jobs:
         env:
           TEST_POSTGRES_URL: postgresql://a2a:ci-password@127.0.0.1:5432/a2a
         run: pytest -q tests/integration/test_postgres_task_store.py --tb=short
+      - name: PostgreSQL cost ledger integration tests
+        env:
+          TEST_POSTGRES_URL: postgresql://a2a:ci-password@127.0.0.1:5432/a2a
+        run: pytest -q tests/integration/test_postgres_cost_ledger.py --tb=short
+
 
       - name: Safety tests
         run: pytest -q tests/safety --tb=short
