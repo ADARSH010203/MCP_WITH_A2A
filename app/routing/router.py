@@ -374,6 +374,26 @@ class MultiAgent:
         remote_task_id: str | None = None,
         cost_budget: CostBudget | None = None,
     ) -> dict[str, Any]:
+        if cost_budget is not None and cost_budget.exceeded:
+            result = {
+                "agent": agent_type,
+                "status": "budget_exceeded",
+                "content": (
+                    "LLM token/cost budget exhausted before this specialist call."
+                ),
+                "attempts": 0,
+                "cost_budget_exceeded": True,
+            }
+            if trace:
+                trace.record(
+                    "specialist_call",
+                    agent_type,
+                    "budget_exceeded",
+                    attempt=attempt,
+                    details={"cost": cost_budget.snapshot()},
+                )
+            return result
+
         if not budget.reserve():
             result = {
                 "agent": agent_type,
@@ -1005,7 +1025,6 @@ class MultiAgent:
     ) -> dict[str, Any]:
         agent_types = list(plan.agents)
         budget = CallBudget(self.max_agent_calls_per_task)
-        cost_budget = CostBudget(self.cost_policy)
         cost_budget = CostBudget(self.cost_policy)
         outcomes: list[dict[str, Any]] = []
 
