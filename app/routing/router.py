@@ -6,6 +6,7 @@ from functools import partial
 import re
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from collections.abc import AsyncIterable, Callable
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any, Protocol
@@ -1269,6 +1270,88 @@ class MultiAgent:
             "collaboration_trace": trace.snapshot(),
         }
 
+    def _estimate_budget_reservation(
+        self,
+        query: str,
+        plan: CollaborationPlan,
+    ) -> tuple[int, float]:
+        input_tokens = max(1, (len(query) + 3) // 4)
+        agent_count = max(1, len(plan.agents))
+        if plan.mode == "multi-agent":
+            agent_count += 1
+
+        output_tokens = (
+            settings.a2a_budget_admission_output_tokens_per_agent * agent_count
+        )
+        estimated_tokens = input_tokens + output_tokens
+        if self.cost_policy.max_total_tokens_per_task > 0:
+            reserved_tokens = max(
+                estimated_tokens,
+                self.cost_policy.max_total_tokens_per_task,
+            )
+        else:
+            reserved_tokens = estimated_tokens
+
+        usage = TokenUsage(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
+        estimated_cost = self.cost_policy.estimate(usage)
+        if self.cost_policy.max_estimated_cost_usd_per_task > 0:
+            estimated_cost = max(
+                estimated_cost,
+                self.cost_policy.max_estimated_cost_usd_per_task,
+            )
+        return reserved_tokens, estimated_cost
+
+    def _admit_budget(
+        self,
+        query: str,
+        plan: CollaborationPlan,
+        trace: CollaborationTrace,
+    ) -> str | None:
+        if (
+            self.cost_governance is None
+            or not settings.a2a_budget_admission_enabled
+        ):
+            return None
+
+        reservation_key = uuid4().hex
+        reserved_tokens, reserved_cost = self._estimate_budget_reservation(
+            query,
+            plan,
+        )
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(
+            seconds=settings.a2a_budget_admission_reservation_seconds
+        )
+        admitted = self.cost_governance.admit(
+            principal_id=get_memory_principal_id(),
+            reservation_key=reservation_key,
+            reserved_tokens=reserved_tokens,
+            reserved_cost_usd=reserved_cost,
+            now=now,
+            expires_at=expires_at,
+        )
+        trace.record(
+            "budget_admission",
+            "governance",
+            "admitted" if admitted else "rejected",
+            details={
+                "reserved_tokens": reserved_tokens,
+                "reserved_cost_usd": round(reserved_cost, 8),
+                "reservation_seconds": settings.a2a_budget_admission_reservation_seconds,
+            },
+        )
+        if not admitted:
+            return None
+        return reservation_key
+
+    def _release_budget(self, reservation_key: str | None) -> None:
+        if self.cost_governance is None or reservation_key is None:
+            return
+        self.cost_governance.release(reservation_key)
+
     def _record_cost_ledger(
         self,
         trace: CollaborationTrace,
@@ -1328,6 +1411,29 @@ class MultiAgent:
         )
         budget = CallBudget(self.max_agent_calls_per_task)
         cost_budget = CostBudget(self.cost_policy)
+        reservation_key = self._admit_budget(query, plan, trace)
+
+        if (
+            self.cost_governance is not None
+            and settings.a2a_budget_admission_enabled
+            and reservation_key is None
+        ):
+            result = {
+                "status": "budget_rejected",
+                "is_task_complete": False,
+                "require_user_input": False,
+                "content": (
+                    "The request was rejected before model execution because "
+                    "the principal budget has insufficient reserved capacity."
+                ),
+                "agents_used": [],
+                "collaboration_mode": plan.mode,
+                "critic_reviewed": False,
+                "collaboration_plan": plan.to_dict(),
+                "cost": cost_budget.snapshot(),
+                "collaboration_trace": trace.snapshot(),
+            }
+            return result
 
         if plan.mode == "single-agent":
             agent_type = plan.agents[0]
@@ -1350,6 +1456,7 @@ class MultiAgent:
             result.setdefault("collaboration_plan", plan.to_dict())
             result["cost"] = cost_budget.snapshot()
             result = self._record_cost_ledger(trace, result)
+            self._release_budget(reservation_key)
             trace.record(
                 "request_completed",
                 "coordinator",
@@ -1368,6 +1475,7 @@ class MultiAgent:
             (time.perf_counter() - started) * 1000,
         )
         result = self._record_cost_ledger(trace, result)
+        self._release_budget(reservation_key)
         result["collaboration_trace"] = trace.snapshot()
         return result
 
