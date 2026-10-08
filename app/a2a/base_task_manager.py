@@ -24,6 +24,7 @@ from app.a2a.models import (
     SetTaskPushNotificationRequest,
     SetTaskPushNotificationResponse,
     Task,
+    TaskArtifactUpdateEvent,
     TaskIdParams,
     TaskNotCancelableError,
     TaskNotFoundError,
