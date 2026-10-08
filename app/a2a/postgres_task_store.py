@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -233,7 +232,7 @@ class PostgresTaskStore:
         if lease_seconds <= 0:
             raise ValueError("lease_seconds must be positive")
 
-        now = __import__("time").time()
+        now = time.time()
         lease_until = now + lease_seconds
         with self.connection.cursor() as cursor:
             cursor.execute(
