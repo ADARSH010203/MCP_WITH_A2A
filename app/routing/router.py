@@ -372,6 +372,7 @@ class MultiAgent:
         attempt: int = 1,
         timeout_seconds: float | None = None,
         remote_task_id: str | None = None,
+        cost_budget: CostBudget | None = None,
     ) -> dict[str, Any]:
         if not budget.reserve():
             result = {
@@ -500,6 +501,31 @@ class MultiAgent:
             }
         else:
             outcome = dict(result)
+
+            usage_payload = outcome.get("usage")
+            usage = None
+            if isinstance(usage_payload, dict):
+                try:
+                    usage = TokenUsage(
+                        input_tokens=max(0, int(usage_payload.get("input_tokens", 0))),
+                        output_tokens=max(0, int(usage_payload.get("output_tokens", 0))),
+                    )
+                except (TypeError, ValueError):
+                    usage = None
+
+            if cost_budget is not None:
+                within_budget = cost_budget.record(
+                    usage,
+                    agent=agent_type,
+                    execution_mode=execution_mode,
+                )
+                if not within_budget:
+                    outcome["status"] = "budget_exceeded"
+                    outcome["content"] = (
+                        "LLM token/cost budget exceeded; "
+                        "no further model calls will be made for this task."
+                    )
+                    outcome["cost_budget_exceeded"] = True
             outcome.setdefault("agent", agent_type)
             outcome.setdefault("status", "error")
             outcome["content"] = str(outcome.get("content", "")).strip()
