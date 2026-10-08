@@ -669,6 +669,7 @@ class MultiAgent:
         outcomes: list[dict[str, Any]],
         budget: CallBudget,
         trace: CollaborationTrace | None = None,
+        cost_budget: CostBudget | None = None,
     ) -> dict[str, Any]:
         if not budget.reserve():
             result = {
@@ -735,6 +736,36 @@ class MultiAgent:
                 "content": "Critic returned an invalid response.",
                 "critic_reviewed": False,
             }
+
+        if cost_budget is not None:
+            usage_payload = result.get("usage")
+            usage = None
+            if isinstance(usage_payload, dict):
+                try:
+                    usage = TokenUsage(
+                        input_tokens=max(
+                            0,
+                            int(usage_payload.get("input_tokens", 0)),
+                        ),
+                        output_tokens=max(
+                            0,
+                            int(usage_payload.get("output_tokens", 0)),
+                        ),
+                    )
+                except (TypeError, ValueError):
+                    usage = None
+
+            if not cost_budget.record(
+                usage,
+                agent="critic",
+                execution_mode="local",
+            ):
+                result["status"] = "budget_exceeded"
+                result["critic_reviewed"] = False
+                result["cost_budget_exceeded"] = True
+                result["content"] = (
+                    "LLM token/cost budget exceeded during critic synthesis."
+                )
 
         if trace:
             trace.record(
