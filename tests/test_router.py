@@ -764,3 +764,35 @@ def test_router_persists_final_cost_attribution(tmp_path):
     assert result["cost"]["ledger"]["daily"]["total_tokens"] == 15
     assert result["cost"]["ledger"]["daily"]["tasks"] == 1
     ledger.close()
+
+
+def test_router_rejects_request_before_agent_execution_when_budget_cannot_be_reserved(
+    tmp_path,
+):
+    from app.observability.cost_ledger import CostGovernance, _SQLiteCostLedger
+
+    class NeverCalledAgent(FakeAgent):
+        def invoke(self, query, session_id):
+            raise AssertionError("agent execution must not start after admission rejection")
+
+    ledger = _SQLiteCostLedger(
+        str(tmp_path / "cost.db"),
+        "admission-secret",
+    )
+    governance = CostGovernance(
+        ledger,
+        daily_token_limit=10,
+        monthly_token_limit=10,
+    )
+    agent = NeverCalledAgent("currency")
+    router = MultiAgent(agents={"currency": agent})
+    router.cost_governance = governance
+
+    result = router.invoke(
+        "What is the exchange rate between USD and EUR?",
+        "admission-rejection-session",
+    )
+
+    assert result["status"] == "budget_rejected"
+    assert result["agents_used"] == []
+    ledger.close()
