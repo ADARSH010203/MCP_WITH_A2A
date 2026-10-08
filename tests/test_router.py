@@ -663,3 +663,55 @@ def test_router_semantic_fallback_receives_only_authorized_candidates():
 
     assert router.select_agent_types("A request outside deterministic triggers.") == ["email"]
     assert semantic.candidates == ("email",)
+
+
+
+def test_router_stops_after_task_token_budget_is_exceeded():
+    class CostedAgent:
+        def __init__(self):
+            self.calls = 0
+
+        def invoke(self, query, session_id):
+            del query, session_id
+            self.calls += 1
+            return {
+                "status": "completed",
+                "is_task_complete": True,
+                "require_user_input": False,
+                "content": "answer",
+                "usage": {
+                    "input_tokens": 60,
+                    "output_tokens": 60,
+                    "total_tokens": 120,
+                },
+            }
+
+        async def stream(self, query, session_id):
+            del query, session_id
+            yield {
+                "status": "completed",
+                "is_task_complete": True,
+                "require_user_input": False,
+                "content": "answer",
+                "usage": {
+                    "input_tokens": 60,
+                    "output_tokens": 60,
+                    "total_tokens": 120,
+                },
+            }
+
+    from app.observability.cost import CostPolicy
+
+    agent = CostedAgent()
+    router = MultiAgent(agents={"currency": agent})
+    router.cost_policy = CostPolicy(max_total_tokens_per_task=100)
+
+    result = router.invoke(
+        "What is the exchange rate between USD and EUR?",
+        "cost-budget-session",
+    )
+
+    assert result["status"] == "budget_exceeded"
+    assert result["cost"]["budget_exceeded"] is True
+    assert result["cost"]["total_tokens"] == 120
+    assert agent.calls == 1

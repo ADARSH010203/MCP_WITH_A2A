@@ -6,6 +6,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_groq import ChatGroq
 
 from app.config.settings import settings
+from app.observability.cost import TokenUsage
 
 
 class CriticAgent:
@@ -96,11 +97,15 @@ class CriticAgent:
             if not isinstance(content, str):
                 content = str(content)
 
-            return {
+            result = {
                 "status": "completed",
                 "content": content.strip() or "The critic returned an empty result.",
                 "critic_reviewed": True,
             }
+            usage = TokenUsage.from_message(response)
+            if usage is not None and usage.total_tokens:
+                result["usage"] = usage.to_dict()
+            return result
         except Exception:
             fallback = "\n\n".join(
                 f"{item['agent']}: {item['content']}"

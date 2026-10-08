@@ -26,6 +26,7 @@ from app.routing.capability import CapabilityAuthorizer, CapabilityAuthorization
 from app.routing.planner import CollaborationPlan, CollaborationPlanner
 from app.routing.registry import DEFAULT_AGENT_REGISTRY
 from app.routing.remote_specialist import RemoteA2ASpecialist
+from app.observability.cost import CostBudget, CostPolicy, TokenUsage
 from app.observability.otel import span
 from app.routing.retry import RetryPolicy
 from app.routing.semantic import SemanticRouter, SemanticRoutingError
@@ -181,6 +182,28 @@ class MultiAgent:
             90.0,
         )
         self.max_agent_calls_per_task = settings.a2a_max_agent_calls_per_task
+        self.cost_policy = CostPolicy(
+            input_usd_per_1m_tokens=getattr(
+                settings,
+                "a2a_cost_input_usd_per_1m_tokens",
+                0.0,
+            ),
+            output_usd_per_1m_tokens=getattr(
+                settings,
+                "a2a_cost_output_usd_per_1m_tokens",
+                0.0,
+            ),
+            max_total_tokens_per_task=getattr(
+                settings,
+                "a2a_max_total_tokens_per_task",
+                0,
+            ),
+            max_estimated_cost_usd_per_task=getattr(
+                settings,
+                "a2a_max_estimated_cost_usd_per_task",
+                0.0,
+            ),
+        )
         self._agent_lock = threading.Lock()
 
     @staticmethod
@@ -363,7 +386,28 @@ class MultiAgent:
         attempt: int = 1,
         timeout_seconds: float | None = None,
         remote_task_id: str | None = None,
+        cost_budget: CostBudget | None = None,
     ) -> dict[str, Any]:
+        if cost_budget is not None and cost_budget.exceeded:
+            result = {
+                "agent": agent_type,
+                "status": "budget_exceeded",
+                "content": (
+                    "LLM token/cost budget exhausted before this specialist call."
+                ),
+                "attempts": 0,
+                "cost_budget_exceeded": True,
+            }
+            if trace:
+                trace.record(
+                    "specialist_call",
+                    agent_type,
+                    "budget_exceeded",
+                    attempt=attempt,
+                    details={"cost": cost_budget.snapshot()},
+                )
+            return result
+
         if not budget.reserve():
             result = {
                 "agent": agent_type,
@@ -491,6 +535,31 @@ class MultiAgent:
             }
         else:
             outcome = dict(result)
+
+            usage_payload = outcome.get("usage")
+            usage = None
+            if isinstance(usage_payload, dict):
+                try:
+                    usage = TokenUsage(
+                        input_tokens=max(0, int(usage_payload.get("input_tokens", 0))),
+                        output_tokens=max(0, int(usage_payload.get("output_tokens", 0))),
+                    )
+                except (TypeError, ValueError):
+                    usage = None
+
+            if cost_budget is not None:
+                within_budget = cost_budget.record(
+                    usage,
+                    agent=agent_type,
+                    execution_mode=execution_mode,
+                )
+                if not within_budget:
+                    outcome["status"] = "budget_exceeded"
+                    outcome["content"] = (
+                        "LLM token/cost budget exceeded; "
+                        "no further model calls will be made for this task."
+                    )
+                    outcome["cost_budget_exceeded"] = True
             outcome.setdefault("agent", agent_type)
             outcome.setdefault("status", "error")
             outcome["content"] = str(outcome.get("content", "")).strip()
@@ -528,6 +597,7 @@ class MultiAgent:
         session_id: str,
         budget: CallBudget,
         trace: CollaborationTrace | None = None,
+        cost_budget: CostBudget | None = None,
     ) -> dict[str, Any]:
         policy = RetryPolicy(
             max_retries=self.specialist_max_retries,
@@ -571,9 +641,13 @@ class MultiAgent:
                     remaining,
                 ),
                 remote_task_id=operation_task_id,
+                cost_budget=cost_budget,
             )
 
-            if outcome["status"] == "budget_exceeded":
+            if outcome["status"] == "budget_exceeded" or outcome.get(
+                "cost_budget_exceeded",
+                False,
+            ):
                 outcome["attempts"] = attempt
                 return outcome
 
@@ -629,7 +703,16 @@ class MultiAgent:
         outcomes: list[dict[str, Any]],
         budget: CallBudget,
         trace: CollaborationTrace | None = None,
+        cost_budget: CostBudget | None = None,
     ) -> dict[str, Any]:
+        if cost_budget is not None and cost_budget.exceeded:
+            return {
+                "status": "budget_exceeded",
+                "content": "LLM token/cost budget exhausted before critic synthesis.",
+                "critic_reviewed": False,
+                "cost_budget_exceeded": True,
+            }
+
         if not budget.reserve():
             result = {
                 "status": "budget_exceeded",
@@ -696,6 +779,36 @@ class MultiAgent:
                 "critic_reviewed": False,
             }
 
+        if cost_budget is not None:
+            usage_payload = result.get("usage")
+            usage = None
+            if isinstance(usage_payload, dict):
+                try:
+                    usage = TokenUsage(
+                        input_tokens=max(
+                            0,
+                            int(usage_payload.get("input_tokens", 0)),
+                        ),
+                        output_tokens=max(
+                            0,
+                            int(usage_payload.get("output_tokens", 0)),
+                        ),
+                    )
+                except (TypeError, ValueError):
+                    usage = None
+
+            if not cost_budget.record(
+                usage,
+                agent="critic",
+                execution_mode="local",
+            ):
+                result["status"] = "budget_exceeded"
+                result["critic_reviewed"] = False
+                result["cost_budget_exceeded"] = True
+                result["content"] = (
+                    "LLM token/cost budget exceeded during critic synthesis."
+                )
+
         if trace:
             trace.record(
                 "critic_completed",
@@ -713,6 +826,7 @@ class MultiAgent:
         session_id: str,
         budget: CallBudget,
         trace: CollaborationTrace | None = None,
+        cost_budget: CostBudget | None = None,
     ) -> AsyncIterable[dict[str, Any]]:
         started = time.perf_counter()
         if trace:
@@ -761,6 +875,39 @@ class MultiAgent:
                 }
                 if is_terminal and terminal_status is None:
                     terminal_status = status
+                    if cost_budget is not None:
+                        usage = None
+                        usage_payload = item.get("usage")
+                        if isinstance(usage_payload, dict):
+                            try:
+                                usage = TokenUsage(
+                                    input_tokens=max(
+                                        0,
+                                        int(usage_payload.get("input_tokens", 0)),
+                                    ),
+                                    output_tokens=max(
+                                        0,
+                                        int(usage_payload.get("output_tokens", 0)),
+                                    ),
+                                )
+                            except (TypeError, ValueError):
+                                usage = None
+
+                        if not cost_budget.record(
+                            usage,
+                            agent=agent_type,
+                            execution_mode="stream",
+                        ):
+                            item = dict(item)
+                            item["status"] = "budget_exceeded"
+                            item["is_task_complete"] = True
+                            item["content"] = (
+                                "LLM token/cost budget exceeded; "
+                                "no further model calls will be made for this task."
+                            )
+                            item["cost_budget_exceeded"] = True
+                            terminal_status = "budget_exceeded"
+
                     if trace:
                         trace.record(
                             "specialist_completed",
@@ -842,6 +989,7 @@ class MultiAgent:
         upstream_findings: list[dict[str, Any]] | None = None,
         budget: CallBudget | None = None,
         trace: CollaborationTrace | None = None,
+        cost_budget: CostBudget | None = None,
     ) -> dict[str, Any]:
         active_budget = budget or CallBudget(self.max_agent_calls_per_task)
         prompt = self._build_subtask(query, agent_type, upstream_findings)
@@ -851,6 +999,7 @@ class MultiAgent:
             session_id,
             active_budget,
             trace=trace,
+            cost_budget=cost_budget,
         )
 
     def _run_specialist_safely(
@@ -861,6 +1010,7 @@ class MultiAgent:
         upstream_findings: list[dict[str, Any]] | None = None,
         budget: CallBudget | None = None,
         trace: CollaborationTrace | None = None,
+        cost_budget: CostBudget | None = None,
     ) -> dict[str, Any]:
         try:
             return self._run_specialist(
@@ -870,6 +1020,7 @@ class MultiAgent:
                 upstream_findings,
                 budget,
                 trace,
+                cost_budget,
             )
         except Exception as exc:
             if trace:
@@ -895,6 +1046,7 @@ class MultiAgent:
         upstream_findings: list[dict[str, Any]] | None = None,
         budget: CallBudget | None = None,
         trace: CollaborationTrace | None = None,
+        cost_budget: CostBudget | None = None,
     ) -> list[dict[str, Any]]:
         if not agent_types:
             return []
@@ -914,6 +1066,7 @@ class MultiAgent:
                     upstream_findings,
                     active_budget,
                     trace,
+                    cost_budget,
                 )
                 for agent_type in agent_types
             ]
@@ -928,6 +1081,7 @@ class MultiAgent:
     ) -> dict[str, Any]:
         agent_types = list(plan.agents)
         budget = CallBudget(self.max_agent_calls_per_task)
+        cost_budget = CostBudget(self.cost_policy)
         outcomes: list[dict[str, Any]] = []
 
         specialist_groups = sorted(
@@ -967,6 +1121,7 @@ class MultiAgent:
                     session_id,
                     budget=budget,
                     trace=trace,
+                    cost_budget=cost_budget,
                 )
                 outcomes.extend(independent_outcomes)
 
@@ -985,6 +1140,7 @@ class MultiAgent:
                     upstream_findings=upstream,
                     budget=budget,
                     trace=trace,
+                    cost_budget=cost_budget,
                 )
                 outcomes.append(outcome)
                 trace.record(
@@ -1037,6 +1193,7 @@ class MultiAgent:
             outcomes,
             budget,
             trace=trace,
+            cost_budget=cost_budget,
         )
         if synthesis.get("status") in {"budget_exceeded", "timeout", "error"}:
             fallback = "\n\n".join(
@@ -1056,6 +1213,7 @@ class MultiAgent:
                 "critic_reviewed": False,
                 "collaboration_plan": plan.to_dict(),
                 "collaboration_trace": trace.snapshot(),
+                "cost": cost_budget.snapshot(),
             }
 
         if needs_input and synthesis.get("status") == "completed":
@@ -1093,6 +1251,7 @@ class MultiAgent:
             },
         )
         budget = CallBudget(self.max_agent_calls_per_task)
+        cost_budget = CostBudget(self.cost_policy)
 
         if plan.mode == "single-agent":
             agent_type = plan.agents[0]
@@ -1102,6 +1261,7 @@ class MultiAgent:
                 session_id,
                 budget,
                 trace=trace,
+                cost_budget=cost_budget,
             )
             result.setdefault("agents_used", [agent_type])
             result.setdefault("collaboration_mode", "single-agent")
@@ -1112,6 +1272,7 @@ class MultiAgent:
                 result.get("status") == "input_required",
             )
             result.setdefault("collaboration_plan", plan.to_dict())
+            result["cost"] = cost_budget.snapshot()
             trace.record(
                 "request_completed",
                 "coordinator",
@@ -1149,6 +1310,7 @@ class MultiAgent:
             },
         )
         budget = CallBudget(self.max_agent_calls_per_task)
+        cost_budget = CostBudget(self.cost_policy)
 
         if plan.mode == "single-agent":
             agent_type = plan.agents[0]
@@ -1158,6 +1320,7 @@ class MultiAgent:
                 session_id,
                 budget,
                 trace,
+                cost_budget,
             ):
                 response.setdefault("agents_used", [agent_type])
                 response.setdefault("collaboration_mode", "single-agent")
@@ -1173,6 +1336,7 @@ class MultiAgent:
                         str(response.get("status", "completed")),
                         (time.perf_counter() - started) * 1000,
                     )
+                response["cost"] = cost_budget.snapshot()
                 response["collaboration_trace"] = trace.snapshot()
                 yield response
             return
@@ -1190,6 +1354,7 @@ class MultiAgent:
             "agents_used": agent_types,
             "collaboration_mode": "multi-agent",
             "collaboration_trace": trace.snapshot(),
+            "cost": cost_budget.snapshot(),
         }
 
         specialist_groups = sorted(
@@ -1225,6 +1390,7 @@ class MultiAgent:
                             None,
                             budget,
                             trace,
+                            cost_budget,
                         )
                     )
                     for step in independent_steps
@@ -1249,6 +1415,7 @@ class MultiAgent:
                         "collaboration_mode": "multi-agent",
                         "collaboration_plan": plan.to_dict(),
                         "collaboration_trace": trace.snapshot(),
+                        "cost": cost_budget.snapshot(),
                     }
 
             for step in dependent_steps:
@@ -1273,6 +1440,7 @@ class MultiAgent:
                     upstream,
                     budget,
                     trace,
+                    cost_budget,
                 )
                 stream_outcomes.append(outcome)
                 trace.record(
@@ -1298,6 +1466,7 @@ class MultiAgent:
                     "collaboration_mode": "multi-agent",
                     "collaboration_plan": plan.to_dict(),
                     "collaboration_trace": trace.snapshot(),
+                    "cost": cost_budget.snapshot(),
                 }
 
         yield {
@@ -1309,6 +1478,7 @@ class MultiAgent:
             "collaboration_mode": "multi-agent",
             "collaboration_plan": plan.to_dict(),
             "collaboration_trace": trace.snapshot(),
+            "cost": cost_budget.snapshot(),
         }
 
         synthesis = await asyncio.to_thread(
@@ -1317,6 +1487,7 @@ class MultiAgent:
             stream_outcomes,
             budget,
             trace,
+            cost_budget,
         )
 
         if synthesis.get("status") in {"budget_exceeded", "timeout", "error"}:
@@ -1351,6 +1522,7 @@ class MultiAgent:
                 "critic_reviewed": False,
                 "collaboration_plan": plan.to_dict(),
                 "collaboration_trace": trace.snapshot(),
+                "cost": cost_budget.snapshot(),
             }
             return
 

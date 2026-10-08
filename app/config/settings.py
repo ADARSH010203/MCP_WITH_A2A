@@ -309,6 +309,26 @@ class Settings:
         6,
         minimum=1,
     )
+    a2a_cost_input_usd_per_1m_tokens: float = _env_float(
+        "A2A_COST_INPUT_USD_PER_1M_TOKENS",
+        0.0,
+        minimum=0.0,
+    )
+    a2a_cost_output_usd_per_1m_tokens: float = _env_float(
+        "A2A_COST_OUTPUT_USD_PER_1M_TOKENS",
+        0.0,
+        minimum=0.0,
+    )
+    a2a_max_total_tokens_per_task: int = _env_int(
+        "A2A_MAX_TOTAL_TOKENS_PER_TASK",
+        0,
+        minimum=0,
+    )
+    a2a_max_estimated_cost_usd_per_task: float = _env_float(
+        "A2A_MAX_ESTIMATED_COST_USD_PER_TASK",
+        0.0,
+        minimum=0.0,
+    )
     push_notification_require_https: bool = _env_bool(
         "PUSH_NOTIFICATION_REQUIRE_HTTPS",
         True,
