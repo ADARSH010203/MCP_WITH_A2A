@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timedelta, timezone
 
 import psycopg
@@ -22,7 +23,7 @@ class PostgresTaskStore:
             database_url,
             connect_timeout=5,
         )
-        self.connection.autocommit = False
+        self.connection.autocommit = True
         self._initialize_schema()
 
     def _initialize_schema(self) -> None:
@@ -59,8 +60,7 @@ class PostgresTaskStore:
                 ON task_leases (lease_until)
                 """
             )
-        self.connection.commit()
-
+        
     def ping(self) -> bool:
         try:
             with self.connection.cursor() as cursor:
@@ -212,7 +212,7 @@ class PostgresTaskStore:
         return len(expired_ids)
 
     def purge_expired_leases(self) -> int:
-        now = __import__("time").time()
+        now = time.time()
         with self.connection.cursor() as cursor:
             cursor.execute(
                 "DELETE FROM task_leases WHERE lease_until <= %s",
