@@ -314,6 +314,30 @@ class Settings:
         0.0,
         minimum=0.0,
     )
+    a2a_cost_ledger_enabled: bool = _env_bool(
+        "A2A_COST_LEDGER_ENABLED",
+        False,
+    )
+    a2a_daily_token_limit_per_principal: int = _env_int(
+        "A2A_DAILY_TOKEN_LIMIT_PER_PRINCIPAL",
+        0,
+        minimum=0,
+    )
+    a2a_monthly_token_limit_per_principal: int = _env_int(
+        "A2A_MONTHLY_TOKEN_LIMIT_PER_PRINCIPAL",
+        0,
+        minimum=0,
+    )
+    a2a_daily_cost_limit_usd_per_principal: float = _env_float(
+        "A2A_DAILY_COST_LIMIT_USD_PER_PRINCIPAL",
+        0.0,
+        minimum=0.0,
+    )
+    a2a_monthly_cost_limit_usd_per_principal: float = _env_float(
+        "A2A_MONTHLY_COST_LIMIT_USD_PER_PRINCIPAL",
+        0.0,
+        minimum=0.0,
+    )
     a2a_cost_output_usd_per_1m_tokens: float = _env_float(
         "A2A_COST_OUTPUT_USD_PER_1M_TOKENS",
         0.0,

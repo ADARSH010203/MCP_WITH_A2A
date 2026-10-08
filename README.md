@@ -446,6 +446,12 @@ The benchmark intentionally measures **routing and orchestration decisions**, no
 - "Explain Q-learning."
 - "Design a simple game concept."
 
+### Persistent cost ledger
+
+Phase 19 adds durable cost attribution on the same SQLite/PostgreSQL backend used by task state. Token usage is recorded per top-level invocation with an opaque principal key, and the authenticated `/costs` endpoint returns daily/monthly usage and configured principal budget status. Provider pricing remains operator-configured rather than hardcoded.
+
+The ledger is an attribution and governance layer, not an authoritative provider billing system; production finance reconciliation should compare it with provider billing exports.
+
 ### Multi-agent cost control
 
 The collaboration coordinator limits a request to a small number of specialists (3 by default). For code-oriented cross-domain tasks, domain specialists run first and their findings are handed to the code specialist before critic synthesis. This keeps the workflow useful without turning every request into an uncontrolled LLM fan-out.

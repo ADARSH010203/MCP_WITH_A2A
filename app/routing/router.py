@@ -22,10 +22,16 @@ from app.agents.game import GameGeneratorAgent
 from app.agents.image import ImageGeneratorAgent
 from app.agents.reinforcement import ReinforcementLearningAgent
 from app.config.settings import settings
+from app.memory.context import get_memory_principal_id
 from app.routing.capability import CapabilityAuthorizer, CapabilityAuthorizationError
 from app.routing.planner import CollaborationPlan, CollaborationPlanner
 from app.routing.registry import DEFAULT_AGENT_REGISTRY
 from app.routing.remote_specialist import RemoteA2ASpecialist
+from app.observability.cost_ledger import (
+    CostGovernance,
+    CostLedgerError,
+    build_cost_ledger,
+)
 from app.observability.cost import CostBudget, CostPolicy, TokenUsage
 from app.observability.otel import span
 from app.routing.retry import RetryPolicy
@@ -204,6 +210,34 @@ class MultiAgent:
                 0.0,
             ),
         )
+        self.cost_governance: CostGovernance | None = None
+        if getattr(settings, "a2a_cost_ledger_enabled", False):
+            try:
+                self.cost_governance = CostGovernance(
+                    build_cost_ledger(),
+                    daily_token_limit=getattr(
+                        settings,
+                        "a2a_daily_token_limit_per_principal",
+                        0,
+                    ),
+                    monthly_token_limit=getattr(
+                        settings,
+                        "a2a_monthly_token_limit_per_principal",
+                        0,
+                    ),
+                    daily_cost_limit_usd=getattr(
+                        settings,
+                        "a2a_daily_cost_limit_usd_per_principal",
+                        0.0,
+                    ),
+                    monthly_cost_limit_usd=getattr(
+                        settings,
+                        "a2a_monthly_cost_limit_usd_per_principal",
+                        0.0,
+                    ),
+                )
+            except CostLedgerError:
+                raise
         self._agent_lock = threading.Lock()
 
     @staticmethod
@@ -1235,6 +1269,48 @@ class MultiAgent:
             "collaboration_trace": trace.snapshot(),
         }
 
+    def _record_cost_ledger(
+        self,
+        trace: CollaborationTrace,
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self.cost_governance is None:
+            return result
+
+        payload = result.get("cost")
+        if not isinstance(payload, dict):
+            payload = {}
+
+        try:
+            usage = TokenUsage(
+                input_tokens=max(0, int(payload.get("input_tokens", 0))),
+                output_tokens=max(0, int(payload.get("output_tokens", 0))),
+            )
+            estimated_cost = max(
+                0.0,
+                float(payload.get("estimated_cost_usd", 0.0)),
+            )
+        except (TypeError, ValueError):
+            usage = TokenUsage()
+            estimated_cost = 0.0
+
+        ledger_report = self.cost_governance.record(
+            task_key=trace.trace_id,
+            principal_id=get_memory_principal_id(),
+            usage=usage,
+            estimated_cost_usd=estimated_cost,
+            status=str(result.get("status", "error")),
+            agents=tuple(
+                str(agent)
+                for agent in result.get("agents_used", ())
+            ),
+        )
+        result["cost"] = {
+            **payload,
+            "ledger": ledger_report,
+        }
+        return result
+
     def invoke(self, query: str, session_id: str) -> dict[str, Any]:
         started = time.perf_counter()
         trace = CollaborationTrace()
@@ -1273,6 +1349,7 @@ class MultiAgent:
             )
             result.setdefault("collaboration_plan", plan.to_dict())
             result["cost"] = cost_budget.snapshot()
+            result = self._record_cost_ledger(trace, result)
             trace.record(
                 "request_completed",
                 "coordinator",
@@ -1290,6 +1367,7 @@ class MultiAgent:
             str(result.get("status", "error")),
             (time.perf_counter() - started) * 1000,
         )
+        result = self._record_cost_ledger(trace, result)
         result["collaboration_trace"] = trace.snapshot()
         return result
 
@@ -1326,17 +1404,29 @@ class MultiAgent:
                 response.setdefault("collaboration_mode", "single-agent")
                 response.setdefault("critic_reviewed", False)
                 response.setdefault("collaboration_plan", plan.to_dict())
-                if (
+
+                terminal = (
                     response.get("is_task_complete")
-                    or response.get("status") in {"error", "timeout", "budget_exceeded"}
-                ):
+                    or response.get("status")
+                    in {"error", "timeout", "budget_exceeded"}
+                )
+                if terminal:
                     trace.record(
                         "request_completed",
                         "coordinator",
                         str(response.get("status", "completed")),
                         (time.perf_counter() - started) * 1000,
                     )
-                response["cost"] = cost_budget.snapshot()
+                    response = self._record_cost_ledger(trace, response)
+
+                response["cost"] = {
+                    **cost_budget.snapshot(),
+                    **(
+                        response.get("cost")
+                        if isinstance(response.get("cost"), dict)
+                        else {}
+                    ),
+                }
                 response["collaboration_trace"] = trace.snapshot()
                 yield response
             return
@@ -1430,7 +1520,9 @@ class MultiAgent:
                     "handoff",
                     step.agent,
                     "started",
-                    details={"upstream": [item["agent"] for item in upstream]},
+                    details={
+                        "upstream": [item["agent"] for item in upstream]
+                    },
                 )
                 outcome = await asyncio.to_thread(
                     self._run_specialist_safely,
@@ -1506,7 +1598,7 @@ class MultiAgent:
                 "completed" if successful else "error",
                 (time.perf_counter() - started) * 1000,
             )
-            yield {
+            final_response = {
                 "is_task_complete": bool(successful),
                 "require_user_input": False,
                 "status": "completed" if successful else "error",
@@ -1515,15 +1607,28 @@ class MultiAgent:
                     "Returning successful specialist findings without synthesis:\n\n"
                     + fallback
                     if successful
-                    else synthesis.get("content", "Critic failed before final synthesis.")
+                    else synthesis.get(
+                        "content",
+                        "Critic failed before final synthesis.",
+                    )
                 ),
                 "agents_used": agent_types,
                 "collaboration_mode": "multi-agent",
                 "critic_reviewed": False,
                 "collaboration_plan": plan.to_dict(),
-                "collaboration_trace": trace.snapshot(),
                 "cost": cost_budget.snapshot(),
             }
+            final_response = self._record_cost_ledger(trace, final_response)
+            final_response["cost"] = {
+                **cost_budget.snapshot(),
+                **(
+                    final_response.get("cost")
+                    if isinstance(final_response.get("cost"), dict)
+                    else {}
+                ),
+            }
+            final_response["collaboration_trace"] = trace.snapshot()
+            yield final_response
             return
 
         trace.record(
@@ -1532,8 +1637,7 @@ class MultiAgent:
             str(synthesis.get("status", "error")),
             (time.perf_counter() - started) * 1000,
         )
-
-        yield {
+        final_response = {
             "is_task_complete": synthesis.get("status") == "completed",
             "require_user_input": synthesis.get("status") == "input_required",
             "status": synthesis.get("status", "error"),
@@ -1541,5 +1645,16 @@ class MultiAgent:
             "agents_used": agent_types,
             "critic_reviewed": synthesis.get("critic_reviewed", False),
             "collaboration_plan": plan.to_dict(),
-            "collaboration_trace": trace.snapshot(),
+            "cost": cost_budget.snapshot(),
         }
+        final_response = self._record_cost_ledger(trace, final_response)
+        final_response["cost"] = {
+            **cost_budget.snapshot(),
+            **(
+                final_response.get("cost")
+                if isinstance(final_response.get("cost"), dict)
+                else {}
+            ),
+        }
+        final_response["collaboration_trace"] = trace.snapshot()
+        yield final_response

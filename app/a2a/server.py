@@ -37,6 +37,7 @@ from app.a2a.models import (
 )
 from app.config.settings import settings
 from app.memory.context import use_memory_principal
+from app.observability.cost_ledger import CostGovernance, CostLedgerError, build_cost_ledger
 from app.observability.context import normalize_request_id, use_request_id
 from app.observability.metrics import METRICS
 from app.observability.otel import initialize_telemetry, span
@@ -191,6 +192,12 @@ class A2AServer:
             methods=["GET"],
             response_model=None,
         )
+        self.app.add_api_route(
+            "/costs",
+            self._costs_endpoint,
+            methods=["GET"],
+            response_model=None,
+        )
 
     async def _startup(self) -> None:
         initialize_telemetry()
@@ -245,6 +252,76 @@ class A2AServer:
 
     async def _health_check(self, _request: Request) -> JSONResponse:
         return JSONResponse({"status": "ok"})
+
+    async def _costs_endpoint(self, request: Request) -> JSONResponse:
+        if not getattr(settings, "a2a_cost_ledger_enabled", False):
+            return JSONResponse(
+                {"status": "disabled"},
+                status_code=404,
+            )
+
+        configured_api_key = getattr(settings, "a2a_api_key", "")
+        if not configured_api_key:
+            return JSONResponse(
+                {
+                    "status": "unavailable",
+                    "detail": "Cost reporting requires A2A_API_KEY.",
+                },
+                status_code=503,
+            )
+
+        authorization = request.headers.get("Authorization", "")
+        scheme, _, credentials = authorization.partition(" ")
+        presented = (
+            credentials.strip()
+            if scheme.casefold() == "bearer"
+            else ""
+        )
+        if not secrets.compare_digest(presented, configured_api_key):
+            return JSONResponse(
+                JSONRPCResponse(
+                    id=None,
+                    error=InvalidRequestError(
+                        message="Authentication required"
+                    ),
+                ).model_dump(exclude_none=True),
+                status_code=401,
+            )
+
+        try:
+            governance = CostGovernance(
+                build_cost_ledger(),
+                daily_token_limit=getattr(
+                    settings,
+                    "a2a_daily_token_limit_per_principal",
+                    0,
+                ),
+                monthly_token_limit=getattr(
+                    settings,
+                    "a2a_monthly_token_limit_per_principal",
+                    0,
+                ),
+                daily_cost_limit_usd=getattr(
+                    settings,
+                    "a2a_daily_cost_limit_usd_per_principal",
+                    0.0,
+                ),
+                monthly_cost_limit_usd=getattr(
+                    settings,
+                    "a2a_monthly_cost_limit_usd_per_principal",
+                    0.0,
+                ),
+            )
+            principal_id = self._principal_id_from_request(request)
+            return JSONResponse(governance.report(principal_id))
+        except CostLedgerError as exc:
+            return JSONResponse(
+                {
+                    "status": "unavailable",
+                    "detail": str(exc),
+                },
+                status_code=503,
+            )
 
     async def _metrics_endpoint(self, request: Request) -> JSONResponse:
         if not getattr(settings, "prometheus_metrics_enabled", True):
