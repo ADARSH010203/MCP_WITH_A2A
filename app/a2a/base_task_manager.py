@@ -34,7 +34,8 @@ from app.a2a.models import (
     TaskStatus,
     TaskStatusUpdateEvent,
 )
-from app.a2a.task_store import SQLiteTaskStore
+from app.a2a.store_protocol import TaskStore
+from app.a2a.task_store_factory import build_task_store
 from app.a2a.utils import new_not_implemented_error
 from app.config.settings import settings
 
@@ -80,8 +81,8 @@ class TaskManager(ABC):
 
 
 class InMemoryTaskManager(TaskManager):
-    def __init__(self, store: SQLiteTaskStore | None = None):
-        self.store = store or SQLiteTaskStore(settings.a2a_task_db_path)
+    def __init__(self, store: TaskStore | None = None):
+        self.store = store or build_task_store()
         self.store.purge_expired(settings.a2a_task_retention_days)
         self.store.purge_expired_leases()
         self.tasks: dict[str, Task] = self.store.load_tasks()
