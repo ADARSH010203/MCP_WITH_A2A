@@ -176,6 +176,21 @@ class AgentTaskManager(InMemoryTaskManager):
         task_send_params = request.params
         query = self._get_user_query(task_send_params)
 
+        claimed = await self._claim_task(task_send_params.id)
+        if not claimed:
+            await self.enqueue_events_for_sse(
+                task_send_params.id,
+                UnsupportedOperationError(
+                    message="Task is being executed by another worker.",
+                ),
+            )
+            return
+
+        heartbeat = asyncio.create_task(
+            self._lease_heartbeat(task_send_params.id)
+        )
+        self.active_task_ids.add(task_send_params.id)
+
         try:
             async with self.execution_semaphore:
                 async for item in self.agent.stream(
@@ -304,6 +319,11 @@ class AgentTaskManager(InMemoryTaskManager):
                     final=True,
                 ),
             )
+        finally:
+            self.active_task_ids.discard(task_send_params.id)
+            heartbeat.cancel()
+            await asyncio.gather(heartbeat, return_exceptions=True)
+            await self._release_task(task_send_params.id)
 
     def _validate_request(
         self, request: SendTaskRequest | SendTaskStreamingRequest
@@ -521,6 +541,21 @@ class AgentTaskManager(InMemoryTaskManager):
 
             if not created and self._is_terminal(existing_task):
                 queue = await self._queue_current_task_state(existing_task)
+            elif (
+                not created
+                and request.params.id not in self.streaming_tasks
+                and await asyncio.to_thread(
+                    self.store.task_claimed_by_other,
+                    request.params.id,
+                    self.worker_id,
+                )
+            ):
+                return JSONRPCResponse(
+                    id=request.id,
+                    error=UnsupportedOperationError(
+                        message="Task is currently running on another worker.",
+                    ),
+                )
             else:
                 queue = await self.setup_sse_consumer(request.params.id)
                 if request.params.id not in self.streaming_tasks:
