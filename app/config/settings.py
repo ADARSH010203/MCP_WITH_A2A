@@ -146,6 +146,33 @@ class Settings:
         minimum=0.1,
     )
     a2a_task_db_path: str = os.getenv("A2A_TASK_DB_PATH", ".data/a2a_tasks.db")
+    a2a_task_store_backend: str = os.getenv(
+        "A2A_TASK_STORE_BACKEND",
+        "sqlite",
+    ).strip().casefold()
+    a2a_task_database_url: str = os.getenv(
+        "A2A_TASK_DATABASE_URL",
+        "",
+    ).strip()
+    a2a_task_lease_seconds: float = _env_float(
+        "A2A_TASK_LEASE_SECONDS",
+        300.0,
+        minimum=5.0,
+    )
+    a2a_task_recovery_worker_enabled: bool = _env_bool(
+        "A2A_TASK_RECOVERY_WORKER_ENABLED",
+        True,
+    )
+    a2a_task_recovery_poll_seconds: float = _env_float(
+        "A2A_TASK_RECOVERY_POLL_SECONDS",
+        2.0,
+        minimum=0.5,
+    )
+    a2a_task_recovery_batch_size: int = _env_int(
+        "A2A_TASK_RECOVERY_BATCH_SIZE",
+        10,
+        minimum=1,
+    )
     a2a_api_key: str = os.getenv("A2A_API_KEY", "")
     a2a_rate_limit_per_minute: int = _env_int(
         "A2A_RATE_LIMIT_PER_MINUTE",
