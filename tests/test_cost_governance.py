@@ -78,7 +78,7 @@ def test_cost_budget_stops_after_usd_limit():
         CostPolicy(
             input_usd_per_1m_tokens=10.0,
             output_usd_per_1m_tokens=10.0,
-            max_estimated_cost_usd_per_task=0.001,
+            max_estimated_cost_usd_per_task=0.0005,
         )
     )
 
