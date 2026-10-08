@@ -31,7 +31,7 @@ from app.a2a.models import (
     UnsupportedOperationError,
 )
 from app.a2a.push_notification_auth import PushNotificationSenderAuth
-from app.a2a.task_store import SQLiteTaskStore
+from app.a2a.store_protocol import TaskStore
 from app.config.constants import SUPPORTED_CONTENT_TYPES
 from app.config.settings import settings
 
@@ -41,7 +41,7 @@ class AgentTaskManager(InMemoryTaskManager):
         self,
         agent: Any,
         notification_sender_auth: PushNotificationSenderAuth,
-        store: SQLiteTaskStore | None = None,
+        store: TaskStore | None = None,
     ):
         super().__init__(store=store)
         self.agent = agent
@@ -50,6 +50,39 @@ class AgentTaskManager(InMemoryTaskManager):
         self.execution_semaphore = asyncio.Semaphore(
             max(1, settings.a2a_max_concurrent_tasks)
         )
+
+    async def _claim_task(self, task_id: str) -> bool:
+        return await asyncio.to_thread(
+            self.store.claim_task,
+            task_id,
+            self.worker_id,
+            self.task_lease_seconds,
+        )
+
+    async def _release_task(self, task_id: str) -> None:
+        await asyncio.to_thread(
+            self.store.release_task,
+            task_id,
+            self.worker_id,
+        )
+
+    async def _lease_heartbeat(self, task_id: str) -> None:
+        interval = max(1.0, self.task_lease_seconds / 3)
+        while True:
+            await asyncio.sleep(interval)
+            renewed = await asyncio.to_thread(
+                self.store.renew_task_lease,
+                task_id,
+                self.worker_id,
+                self.task_lease_seconds,
+            )
+            if not renewed:
+                logging.getLogger(__name__).warning(
+                    "Lost task lease for %s on worker %s",
+                    task_id,
+                    self.worker_id,
+                )
+                return
 
     async def on_set_task_push_notification(self, request: Any):
         config = request.params.pushNotificationConfig
@@ -61,6 +94,81 @@ class AgentTaskManager(InMemoryTaskManager):
                 ),
             )
         return await super().on_set_task_push_notification(request)
+
+    async def start_recovery_worker(self) -> None:
+        """Start the durable-task recovery loop when enabled."""
+        if not self.recovery_worker_enabled or self.recovery_worker_task is not None:
+            return
+
+        self.recovery_stop_event = asyncio.Event()
+        self.recovery_worker_task = asyncio.create_task(
+            self._recovery_loop(),
+            name=f"task-recovery-{self.worker_id}",
+        )
+
+    async def stop_recovery_worker(self) -> None:
+        """Stop the recovery loop during graceful shutdown."""
+        task = self.recovery_worker_task
+        if task is None:
+            return
+
+        if self.recovery_stop_event is not None:
+            self.recovery_stop_event.set()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        self.recovery_worker_task = None
+        self.recovery_stop_event = None
+
+    async def recover_tasks_once(self) -> int:
+        """Reclaim expired submitted/working tasks from durable storage."""
+        tasks = await asyncio.to_thread(
+            self.store.list_recoverable_tasks,
+            self.recovery_batch_size,
+        )
+        recovered = 0
+        for task in tasks:
+            message = (task.history or [None])[0]
+            if message is None:
+                continue
+
+            request = SendTaskRequest(
+                id=f"recovery:{self.worker_id}:{task.id}",
+                params=TaskSendParams(
+                    id=task.id,
+                    sessionId=task.sessionId,
+                    message=message,
+                ),
+            )
+            response = await self.on_send_task(request)
+            if response.result is not None and response.result.status.state in {
+                TaskState.WORKING,
+                TaskState.COMPLETED,
+                TaskState.INPUT_REQUIRED,
+            }:
+                recovered += 1
+        return recovered
+
+    async def _recovery_loop(self) -> None:
+        if self.recovery_stop_event is None:
+            return
+
+        while not self.recovery_stop_event.is_set():
+            try:
+                await self.recover_tasks_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Durable task recovery iteration failed"
+                )
+
+            try:
+                await asyncio.wait_for(
+                    self.recovery_stop_event.wait(),
+                    timeout=self.recovery_poll_seconds,
+                )
+            except asyncio.TimeoutError:
+                continue
 
     @staticmethod
     def _is_terminal(task: Task) -> bool:
@@ -319,13 +427,35 @@ class AgentTaskManager(InMemoryTaskManager):
                 error=InvalidParamsError(message=str(exc)),
             )
 
-        if not created:
+        if not created and self._is_terminal(existing_task):
             return SendTaskResponse(
                 id=request.id,
                 result=self.append_task_history(
                     existing_task, request.params.historyLength
                 ),
             )
+
+        claimed = await self._claim_task(request.params.id)
+        if not claimed:
+            current = await self.get_stored_task(request.params.id)
+            if current is None:
+                return SendTaskResponse(
+                    id=request.id,
+                    error=InternalError(
+                        message="Task disappeared while acquiring execution lease"
+                    ),
+                )
+            return SendTaskResponse(
+                id=request.id,
+                result=self.append_task_history(
+                    current, request.params.historyLength
+                ),
+            )
+
+        heartbeat = asyncio.create_task(
+            self._lease_heartbeat(request.params.id),
+            name=f"task-heartbeat-{request.params.id}",
+        )
 
         if created and request.params.pushNotification:
             verified = await self.set_push_notification_info(
@@ -359,6 +489,13 @@ class AgentTaskManager(InMemoryTaskManager):
 
         try:
             query = self._get_user_query(request.params)
+            task = await self.update_store(
+                request.params.id,
+                TaskStatus(state=TaskState.WORKING),
+                [],
+            )
+            await self.send_task_notification(task)
+
             async with self.execution_semaphore:
                 agent_response = await asyncio.to_thread(
                     self.agent.invoke,
@@ -384,8 +521,17 @@ class AgentTaskManager(InMemoryTaskManager):
             task = await self.update_store(request.params.id, failure_status, [])
             await self.send_task_notification(task)
             return SendTaskResponse(id=request.id, result=task)
+        finally:
+            heartbeat.cancel()
+            await asyncio.gather(heartbeat, return_exceptions=True)
+            await self._release_task(request.params.id)
 
-        return await self._process_agent_response(request, agent_response)
+        try:
+            return await self._process_agent_response(request, agent_response)
+        finally:
+            heartbeat.cancel()
+            await asyncio.gather(heartbeat, return_exceptions=True)
+            await self._release_task(request.params.id)
 
     async def on_send_task_subscribe(
         self, request: SendTaskStreamingRequest
