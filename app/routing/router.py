@@ -22,6 +22,7 @@ from app.agents.game import GameGeneratorAgent
 from app.agents.image import ImageGeneratorAgent
 from app.agents.reinforcement import ReinforcementLearningAgent
 from app.config.settings import settings
+from app.memory.context import get_memory_principal_id
 from app.routing.capability import CapabilityAuthorizer, CapabilityAuthorizationError
 from app.routing.planner import CollaborationPlan, CollaborationPlanner
 from app.routing.registry import DEFAULT_AGENT_REGISTRY
