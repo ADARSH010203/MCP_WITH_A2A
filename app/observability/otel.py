@@ -33,6 +33,7 @@ def _parse_headers(raw: str) -> dict[str, str]:
 def initialize_telemetry() -> None:
     """Initialize the process tracer once, optionally exporting over OTLP."""
     global _INITIALIZED, _PROVIDER
+
     with _LOCK:
         if _INITIALIZED:
             return
@@ -44,34 +45,33 @@ def initialize_telemetry() -> None:
             return
 
         provider = TracerProvider(
-        resource=Resource.create(
-            {
-                "service.name": settings.otel_service_name,
-                "service.version": "1.0.0",
-            }
-        )
-    )
-
-    if settings.otel_exporter_otlp_endpoint:
-        try:
-            from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
-                OTLPSpanExporter,
+            resource=Resource.create(
+                {
+                    "service.name": settings.otel_service_name,
+                    "service.version": "1.0.0",
+                }
             )
-        except ImportError as exc:
-            raise RuntimeError(
-                "OTLP exporter dependency is missing while telemetry export is enabled."
-            ) from exc
-
-        exporter = OTLPSpanExporter(
-            endpoint=settings.otel_exporter_otlp_endpoint,
-            headers=_parse_headers(settings.otel_exporter_otlp_headers),
         )
-        provider.add_span_processor(BatchSpanProcessor(exporter))
+
+        if settings.otel_exporter_otlp_endpoint:
+            try:
+                from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+                    OTLPSpanExporter,
+                )
+            except ImportError as exc:
+                raise RuntimeError(
+                    "OTLP exporter dependency is missing while telemetry export is enabled."
+                ) from exc
+
+            exporter = OTLPSpanExporter(
+                endpoint=settings.otel_exporter_otlp_endpoint,
+                headers=_parse_headers(settings.otel_exporter_otlp_headers),
+            )
+            provider.add_span_processor(BatchSpanProcessor(exporter))
 
         trace.set_tracer_provider(provider)
         _PROVIDER = provider
         _INITIALIZED = True
-
 
 def shutdown_telemetry() -> None:
     """Flush the process-global tracer provider at process exit."""
