@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from uuid import uuid4
 from collections.abc import AsyncIterable
 from typing import Any
 
@@ -54,6 +55,23 @@ class AgentTaskManager(InMemoryTaskManager):
             "a2a_task_lease_seconds",
             300.0,
         )
+        self.recovery_worker_enabled = getattr(
+            settings,
+            "a2a_task_recovery_worker_enabled",
+            False,
+        )
+        self.recovery_poll_seconds = getattr(
+            settings,
+            "a2a_task_recovery_poll_seconds",
+            2.0,
+        )
+        self.recovery_batch_size = getattr(
+            settings,
+            "a2a_task_recovery_batch_size",
+            10,
+        )
+        self.recovery_worker_task: asyncio.Task[None] | None = None
+        self.recovery_stop_event: asyncio.Event | None = None
         self.execution_semaphore = asyncio.Semaphore(
             max(1, settings.a2a_max_concurrent_tasks)
         )
