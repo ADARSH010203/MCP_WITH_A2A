@@ -19,6 +19,21 @@ services:
       - mcp_workspace:/app/workspace
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    profiles: ["distributed"]
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   a2a:
     build: .
     command:
@@ -65,6 +80,10 @@ services:
       A2A_TASK_RECOVERY_WORKER_ENABLED: ${A2A_TASK_RECOVERY_WORKER_ENABLED:-true}
       A2A_TASK_RECOVERY_POLL_SECONDS: ${A2A_TASK_RECOVERY_POLL_SECONDS:-2}
       A2A_TASK_RECOVERY_BATCH_SIZE: ${A2A_TASK_RECOVERY_BATCH_SIZE:-10}
+      A2A_EVENT_BUS_BACKEND: ${A2A_EVENT_BUS_BACKEND:-memory}
+      A2A_EVENT_BUS_URL: ${A2A_EVENT_BUS_URL:-redis://redis:6379/0}
+      A2A_EVENT_BUS_CHANNEL_PREFIX: ${A2A_EVENT_BUS_CHANNEL_PREFIX:-a2a:task:}
+      A2A_EVENT_BUS_MAX_MESSAGE_BYTES: ${A2A_EVENT_BUS_MAX_MESSAGE_BYTES:-1000000}
       A2A_WORKER_ID: ${A2A_WORKER_ID:-}
       A2A_MEMORY_DB_PATH: /app/.data/a2a_memory.db
       A2A_MEMORY_TURNS: ${A2A_MEMORY_TURNS:-8}
@@ -99,3 +118,6 @@ services:
 volumes:
   a2a_data:
   mcp_workspace:
+
+  redis_data:
+

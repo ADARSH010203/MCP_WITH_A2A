@@ -145,6 +145,23 @@ class Settings:
         10.0,
         minimum=0.1,
     )
+    a2a_event_bus_backend: str = os.getenv(
+        "A2A_EVENT_BUS_BACKEND",
+        "memory",
+    ).strip().casefold()
+    a2a_event_bus_url: str = os.getenv(
+        "A2A_EVENT_BUS_URL",
+        "",
+    ).strip()
+    a2a_event_bus_channel_prefix: str = os.getenv(
+        "A2A_EVENT_BUS_CHANNEL_PREFIX",
+        "a2a:task:",
+    )
+    a2a_event_bus_max_message_bytes: int = _env_int(
+        "A2A_EVENT_BUS_MAX_MESSAGE_BYTES",
+        1_000_000,
+        minimum=1024,
+    )
     a2a_task_store_backend: str = os.getenv(
         "A2A_TASK_STORE_BACKEND",
         "sqlite",

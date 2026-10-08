@@ -326,7 +326,7 @@ The calculator parses Python's expression AST instead of calling `eval()`, accep
 - Streaming uses asynchronous agent and SSE paths to avoid blocking the event loop.
 - Push-notification callback URLs require HTTPS by default and private/loopback destinations are blocked.
 - Push notification JWTs are RSA-signed, include a request-body digest and unique token ID, and receivers reject reused tokens within the validity window.
-- A2A task state is persisted locally in SQLite by default, while live streaming subscribers and active workers remain process-local.
+- A2A task state is persisted in SQLite by default or PostgreSQL for distributed deployments. Live SSE events can use an optional Redis event bus, while active worker execution remains lease-coordinated.
 - Duplicate task IDs are idempotent; reusing an ID for a different session or message is rejected.
 - Streaming tasks can be canceled while their worker is active.
 - Currency rates come from a daily reference-rate provider; they are not suitable for live trading or guaranteed settlement prices.
@@ -338,8 +338,8 @@ The calculator parses Python's expression AST instead of calling `eval()`, accep
 
 - Currency rates are external daily reference rates and depend on provider availability.
 - Agent routing is deterministic and registry-driven, but ambiguous requests can still be misrouted or fall back to the code agent.
-- SQLite persistence protects task records across a single server restart, but it does not provide distributed task state across multiple server processes.
-- Live SSE subscriptions and running workers are still process-local; an active task cannot be resumed automatically after a server restart.
+- SQLite remains suitable for local/single-process deployments. PostgreSQL is supported for shared distributed task state across multiple server processes.
+- With the Redis event bus enabled, live SSE updates can cross worker/process boundaries. Pub/Sub is intentionally non-durable, so reconnecting clients use the durable task store for current state rather than replaying every historical event.
 - Agent conversation memory is still in-process via LangGraph's memory checkpointer.
 - The critic performs consistency and completeness review; it is not an external fact-checking or source-verification system.
 - The default agent setup requires a valid Groq API key.

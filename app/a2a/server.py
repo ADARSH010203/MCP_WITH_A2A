@@ -177,6 +177,14 @@ class A2AServer:
         )
 
     async def _startup(self) -> None:
+        start_event_bus = getattr(
+            self.task_manager,
+            "start_event_bus",
+            None,
+        )
+        if start_event_bus is not None:
+            await start_event_bus()
+
         start_recovery = getattr(
             self.task_manager,
             "start_recovery_worker",
@@ -193,6 +201,14 @@ class A2AServer:
         )
         if stop_recovery is not None:
             await stop_recovery()
+
+        stop_event_bus = getattr(
+            self.task_manager,
+            "stop_event_bus",
+            None,
+        )
+        if stop_event_bus is not None:
+            await stop_event_bus()
 
     def start(self) -> None:
         """Start the ASGI application with Uvicorn."""

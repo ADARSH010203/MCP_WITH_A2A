@@ -37,6 +37,7 @@ class ReadinessChecker:
             self._task_store_check(),
             self._mcp_config_check(),
             self._remote_specialist_config_check(),
+            self._event_bus_check(),
         ]
         return (
             all(check.ready for check in checks),
@@ -180,6 +181,35 @@ class ReadinessChecker:
                 connection.close()
 
         return ReadinessCheck("mcp", True, "MCP endpoint host is reachable.")
+
+    def _event_bus_check(self) -> ReadinessCheck:
+        if self.task_manager is None:
+            return ReadinessCheck(
+                "event_bus",
+                False,
+                "Task manager is not configured.",
+            )
+
+        configured = getattr(self.task_manager, "event_bus", None)
+        if configured is None:
+            return ReadinessCheck(
+                "event_bus",
+                True,
+                "Local in-process event delivery is active.",
+            )
+
+        if getattr(self.task_manager, "event_bus_ready", False):
+            return ReadinessCheck(
+                "event_bus",
+                True,
+                "Configured distributed event bus is healthy.",
+            )
+
+        return ReadinessCheck(
+            "event_bus",
+            False,
+            "Configured distributed event bus is unavailable.",
+        )
 
     def _remote_specialist_config_check(self) -> ReadinessCheck:
         urls = settings.a2a_specialist_urls
