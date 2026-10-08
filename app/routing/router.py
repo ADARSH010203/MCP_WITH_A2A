@@ -26,6 +26,7 @@ from app.routing.capability import CapabilityAuthorizer, CapabilityAuthorization
 from app.routing.planner import CollaborationPlan, CollaborationPlanner
 from app.routing.registry import DEFAULT_AGENT_REGISTRY
 from app.routing.remote_specialist import RemoteA2ASpecialist
+from app.observability.otel import span
 from app.routing.retry import RetryPolicy
 from app.routing.semantic import SemanticRouter, SemanticRoutingError
 from app.routing.tracing import CollaborationTrace
@@ -420,54 +421,65 @@ class MultiAgent:
             if timeout_seconds is None
             else max(0.0, timeout_seconds)
         )
-        try:
-            result = future.result(timeout=effective_timeout)
-        except FuturesTimeoutError:
-            future.cancel()
-            executor.shutdown(wait=False, cancel_futures=True)
-            outcome = {
-                "agent": agent_type,
-                "status": "timeout",
-                "content": (
-                    f"{agent_type} specialist exceeded the "
-                    f"{effective_timeout:g}s timeout."
-                ),
-                "attempts": 1,
-                "retryable": True,
-            }
-            if trace:
-                trace.record(
-                    "specialist_completed",
-                    agent_type,
-                    "timeout",
-                    (time.perf_counter() - started) * 1000,
-                    attempt=attempt,
-                )
-            return outcome
-        except Exception as exc:
-            executor.shutdown(wait=False, cancel_futures=True)
-            outcome = {
-                "agent": agent_type,
-                "status": "error",
-                "content": f"Specialist failed: {exc}",
-                "attempts": 1,
-                "retryable": self._is_retryable_exception(exc),
-                "retry_after_seconds": getattr(
-                    exc,
-                    "retry_after_seconds",
-                    None,
-                ),
-            }
-            if trace:
-                trace.record(
-                    "specialist_completed",
-                    agent_type,
-                    "error",
-                    (time.perf_counter() - started) * 1000,
-                    attempt=attempt,
-                    details={"error": str(exc)},
-                )
-            return outcome
+        with span(
+            "a2a.specialist.invoke",
+            attributes={
+                "agent.type": agent_type,
+                "execution.mode": execution_mode,
+                "attempt": attempt,
+            },
+        ) as specialist_span:
+            try:
+                result = future.result(timeout=effective_timeout)
+                specialist_span.set_attribute("result.status", "completed")
+            except FuturesTimeoutError:
+                specialist_span.set_attribute("result.status", "timeout")
+                future.cancel()
+                executor.shutdown(wait=False, cancel_futures=True)
+                outcome = {
+                    "agent": agent_type,
+                    "status": "timeout",
+                    "content": (
+                        f"{agent_type} specialist exceeded the "
+                        f"{effective_timeout:g}s timeout."
+                    ),
+                    "attempts": 1,
+                    "retryable": True,
+                }
+                if trace:
+                    trace.record(
+                        "specialist_completed",
+                        agent_type,
+                        "timeout",
+                        (time.perf_counter() - started) * 1000,
+                        attempt=attempt,
+                    )
+                return outcome
+            except Exception as exc:
+                specialist_span.set_attribute("result.status", "error")
+                executor.shutdown(wait=False, cancel_futures=True)
+                outcome = {
+                    "agent": agent_type,
+                    "status": "error",
+                    "content": f"Specialist failed: {exc}",
+                    "attempts": 1,
+                    "retryable": self._is_retryable_exception(exc),
+                    "retry_after_seconds": getattr(
+                        exc,
+                        "retry_after_seconds",
+                        None,
+                    ),
+                }
+                if trace:
+                    trace.record(
+                        "specialist_completed",
+                        agent_type,
+                        "error",
+                        (time.perf_counter() - started) * 1000,
+                        attempt=attempt,
+                        details={"error": str(exc)},
+                    )
+                return outcome
 
         executor.shutdown(wait=False, cancel_futures=True)
         if not isinstance(result, dict):

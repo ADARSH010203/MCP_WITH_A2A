@@ -39,6 +39,7 @@ from app.config.settings import settings
 from app.memory.context import use_memory_principal
 from app.observability.context import normalize_request_id, use_request_id
 from app.observability.metrics import METRICS
+from app.observability.otel import initialize_telemetry, span
 
 
 class ObservabilityMiddleware(BaseHTTPMiddleware):
@@ -50,7 +51,19 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
 
         with use_request_id(request_id):
             try:
-                response = await call_next(request)
+                with span(
+                    "a2a.http.request",
+                    attributes={
+                        "http.method": request.method,
+                        "http.route": request.url.path,
+                    },
+                ) as http_span:
+                    response = await call_next(request)
+                    http_span.set_attribute(
+                        "http.status_code",
+                        response.status_code,
+                    )
+                    span_context = http_span.get_span_context()
             except Exception:
                 duration_ms = (time.perf_counter() - started) * 1000
                 METRICS.increment(
@@ -81,6 +94,9 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
             METRICS.increment("http_requests_failed_total")
 
         response.headers["X-Request-ID"] = request_id
+        if span_context.is_valid:
+            response.headers["X-Trace-ID"] = format(span_context.trace_id, "032x")
+            response.headers["X-Span-ID"] = format(span_context.span_id, "016x")
         logging.getLogger(__name__).info(
             "a2a_request_completed",
             extra={
@@ -177,6 +193,7 @@ class A2AServer:
         )
 
     async def _startup(self) -> None:
+        initialize_telemetry()
         start_event_bus = getattr(
             self.task_manager,
             "start_event_bus",
@@ -230,6 +247,12 @@ class A2AServer:
         return JSONResponse({"status": "ok"})
 
     async def _metrics_endpoint(self, request: Request) -> JSONResponse:
+        if not getattr(settings, "prometheus_metrics_enabled", True):
+            return JSONResponse(
+                {"status": "disabled"},
+                status_code=404,
+            )
+
         if settings.a2a_api_key:
             authorization = request.headers.get("Authorization", "")
             scheme, _, credentials = authorization.partition(" ")
@@ -249,6 +272,13 @@ class A2AServer:
                     status_code=401,
                 )
 
+        if "text/plain" in request.headers.get("accept", ""):
+            from fastapi.responses import PlainTextResponse
+
+            return PlainTextResponse(
+                METRICS.prometheus(),
+                media_type="text/plain; version=0.0.4; charset=utf-8",
+            )
         return JSONResponse(METRICS.snapshot())
 
     async def _readiness_check(self, _request: Request) -> JSONResponse:

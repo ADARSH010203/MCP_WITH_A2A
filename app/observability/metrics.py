@@ -70,6 +70,59 @@ class MetricsRegistry:
         fraction = index - lower
         return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
 
+    @staticmethod
+    def _escape_label(value: str) -> str:
+        return (
+            value.replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", "\\n")
+        )
+
+    def prometheus(self) -> str:
+        """Render a bounded Prometheus text exposition."""
+        snapshot = self.snapshot()
+        lines: list[str] = []
+
+        for name, payload in snapshot["counters"].items():
+            if not isinstance(payload, dict):
+                continue
+            value = payload.get("value", 0)
+            labels = {
+                str(key): str(value)
+                for key, value in payload.items()
+                if key != "value"
+            }
+            label_text = ""
+            if labels:
+                encoded = ", ".join(
+                    f'{key}="{self._escape_label(value)}"'
+                    for key, value in sorted(labels.items())
+                )
+                label_text = "{" + encoded + "}"
+            lines.append(f"{name}{label_text} {value}")
+
+        for name, payload in snapshot["latencies"].items():
+            if not isinstance(payload, dict):
+                continue
+            base_labels = {
+                str(key): str(value)
+                for key, value in payload.items()
+                if key not in {"count", "p50_ms", "p95_ms", "max_ms"}
+            }
+            for suffix in ("count", "p50_ms", "p95_ms", "max_ms"):
+                value = payload.get(suffix, 0)
+                label_text = ""
+                if base_labels:
+                    encoded = ", ".join(
+                        f'{key}="{self._escape_label(value)}"'
+                        for key, value in sorted(base_labels.items())
+                    )
+                    label_text = "{" + encoded + "}"
+                metric_name = f"{name}_{suffix}"
+                lines.append(f"{metric_name}{label_text} {value}")
+
+        return "\n".join(lines) + ("\n" if lines else "")
+
     def snapshot(self) -> dict[str, object]:
         with self._lock:
             counters = dict(self._counters)
