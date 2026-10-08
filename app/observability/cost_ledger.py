@@ -8,7 +8,7 @@ import json
 import sqlite3
 import threading
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -676,9 +676,7 @@ class CostGovernance:
             return True
 
         timestamp = now or datetime.now(timezone.utc)
-        expiry = expires_at or timestamp.replace(
-            microsecond=timestamp.microsecond
-        )
+        expiry = expires_at or timestamp + timedelta(minutes=5)
         if expiry <= timestamp:
             raise ValueError("Budget reservation must expire in the future.")
 
