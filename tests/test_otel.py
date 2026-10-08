@@ -41,3 +41,46 @@ def test_span_context_is_available_without_exporter():
         context = current.get_span_context()
 
     assert context.is_valid
+
+
+def test_otlp_exporter_builds_trace_endpoint_and_payload(monkeypatch):
+    from app.observability.otel import OTLPJsonSpanExporter
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry import trace
+
+    provider = TracerProvider(resource=Resource.create({"service.name": "test-service"}))
+    exporter = OTLPJsonSpanExporter(
+        "https://collector.example.com",
+        {},
+        "test-service",
+    )
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+    requests = []
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return None
+
+    def fake_urlopen(request, timeout):
+        requests.append((request, timeout))
+        return FakeResponse()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    tracer = provider.get_tracer("test")
+    with tracer.start_as_current_span("demo"):
+        pass
+    provider.shutdown()
+
+    assert requests
+    request, timeout = requests[0]
+    assert request.full_url == "https://collector.example.com/v1/traces"
+    assert timeout == 5.0
+    assert b"test-service" in request.data
+    trace.set_tracer_provider(trace.NoOpTracerProvider())
