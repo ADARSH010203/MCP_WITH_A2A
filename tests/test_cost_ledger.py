@@ -120,3 +120,86 @@ def test_cost_ledger_does_not_store_raw_principal_identifier(tmp_path):
     assert row[0] == "secret-task-id"
     assert "very-sensitive-principal" not in row[1]
     ledger.close()
+
+
+def test_budget_reservation_blocks_concurrent_overcommit(tmp_path):
+    from datetime import timedelta
+
+    ledger = _SQLiteCostLedger(
+        str(tmp_path / "cost.db"),
+        "namespace-secret",
+    )
+    now = datetime(2026, 10, 8, 10, 0, tzinfo=timezone.utc)
+    governance = CostGovernance(
+        ledger,
+        daily_token_limit=100,
+        monthly_token_limit=100,
+    )
+
+    first = governance.admit(
+        principal_id="tenant-a",
+        reservation_key="reservation-1",
+        reserved_tokens=80,
+        reserved_cost_usd=0.0,
+        now=now,
+        expires_at=now + timedelta(minutes=5),
+    )
+    second = governance.admit(
+        principal_id="tenant-a",
+        reservation_key="reservation-2",
+        reserved_tokens=30,
+        reserved_cost_usd=0.0,
+        now=now,
+        expires_at=now + timedelta(minutes=5),
+    )
+
+    assert first is True
+    assert second is False
+
+    governance.release("reservation-1")
+    third = governance.admit(
+        principal_id="tenant-a",
+        reservation_key="reservation-3",
+        reserved_tokens=30,
+        reserved_cost_usd=0.0,
+        now=now,
+        expires_at=now + timedelta(minutes=5),
+    )
+    assert third is True
+    governance.release("reservation-3")
+    ledger.close()
+
+
+def test_expired_budget_reservation_is_reclaimed(tmp_path):
+    from datetime import timedelta
+
+    ledger = _SQLiteCostLedger(
+        str(tmp_path / "cost.db"),
+        "namespace-secret",
+    )
+    now = datetime(2026, 10, 8, 10, 0, tzinfo=timezone.utc)
+    governance = CostGovernance(
+        ledger,
+        daily_token_limit=100,
+    )
+
+    assert governance.admit(
+        principal_id="tenant-a",
+        reservation_key="expired",
+        reserved_tokens=90,
+        reserved_cost_usd=0.0,
+        now=now,
+        expires_at=now + timedelta(seconds=30),
+    )
+
+    reclaimed = governance.admit(
+        principal_id="tenant-a",
+        reservation_key="new",
+        reserved_tokens=90,
+        reserved_cost_usd=0.0,
+        now=now + timedelta(minutes=1),
+        expires_at=now + timedelta(minutes=6),
+    )
+    assert reclaimed is True
+    governance.release("new")
+    ledger.close()
