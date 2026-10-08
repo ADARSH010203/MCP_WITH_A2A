@@ -140,6 +140,74 @@ class AgentTaskManager(InMemoryTaskManager):
 
         return CancelTaskResponse(id=request.id, result=task)
 
+    async def start_recovery_worker(self) -> None:
+        """Start the autonomous recovery loop when enabled."""
+        if not self.recovery_worker_enabled or self.recovery_worker_task is not None:
+            return
+        self.recovery_stop_event = asyncio.Event()
+        self.recovery_worker_task = asyncio.create_task(
+            self._recovery_loop(),
+            name=f"task-recovery-{self.worker_id}",
+        )
+
+    async def stop_recovery_worker(self) -> None:
+        """Stop the autonomous recovery loop cleanly."""
+        task = self.recovery_worker_task
+        if task is None:
+            return
+        if self.recovery_stop_event is not None:
+            self.recovery_stop_event.set()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        self.recovery_worker_task = None
+        self.recovery_stop_event = None
+
+    async def recover_tasks_once(self) -> int:
+        """Recover submitted or expired-working tasks from durable storage."""
+        tasks = await asyncio.to_thread(
+            self.store.list_recoverable_tasks,
+            self.recovery_batch_size,
+        )
+        recovered = 0
+        for task in tasks:
+            first_message = (task.history or [None])[0]
+            if first_message is None:
+                continue
+
+            request = SendTaskRequest(
+                id=f"recovery:{self.worker_id}:{task.id}",
+                params=TaskSendParams(
+                    id=task.id,
+                    sessionId=task.sessionId or uuid4().hex,
+                    message=first_message,
+                ),
+            )
+            response = await self.on_send_task(request)
+            if response.result is not None:
+                recovered += 1
+        return recovered
+
+    async def _recovery_loop(self) -> None:
+        """Continuously recover work whose previous owner disappeared."""
+        if self.recovery_stop_event is None:
+            return
+        while not self.recovery_stop_event.is_set():
+            try:
+                await self.recover_tasks_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Autonomous task recovery iteration failed"
+                )
+            try:
+                await asyncio.wait_for(
+                    self.recovery_stop_event.wait(),
+                    timeout=self.recovery_poll_seconds,
+                )
+            except asyncio.TimeoutError:
+                continue
+
     async def _claim_task(self, task_id: str) -> bool:
         return await asyncio.to_thread(
             self.store.claim_task,
