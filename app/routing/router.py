@@ -1397,25 +1397,21 @@ class MultiAgent:
                 response.setdefault("collaboration_mode", "single-agent")
                 response.setdefault("critic_reviewed", False)
                 response.setdefault("collaboration_plan", plan.to_dict())
-                if (
+
+                terminal = (
                     response.get("is_task_complete")
-                    or response.get("status") in {"error", "timeout", "budget_exceeded"}
-                ):
+                    or response.get("status")
+                    in {"error", "timeout", "budget_exceeded"}
+                )
+                if terminal:
                     trace.record(
                         "request_completed",
                         "coordinator",
                         str(response.get("status", "completed")),
                         (time.perf_counter() - started) * 1000,
                     )
-                if (
-                    response.get("is_task_complete")
-                    or response.get("status") in {
-                        "error",
-                        "timeout",
-                        "budget_exceeded",
-                    }
-                ):
                     response = self._record_cost_ledger(trace, response)
+
                 response["cost"] = {
                     **cost_budget.snapshot(),
                     **(
@@ -1517,7 +1513,9 @@ class MultiAgent:
                     "handoff",
                     step.agent,
                     "started",
-                    details={"upstream": [item["agent"] for item in upstream]},
+                    details={
+                        "upstream": [item["agent"] for item in upstream]
+                    },
                 )
                 outcome = await asyncio.to_thread(
                     self._run_specialist_safely,
@@ -1567,8 +1565,6 @@ class MultiAgent:
             "collaboration_trace": trace.snapshot(),
             "cost": cost_budget.snapshot(),
         }
-        final_response = self._record_cost_ledger(trace, final_response)
-        yield final_response
 
         synthesis = await asyncio.to_thread(
             self._synthesize_with_timeout,
@@ -1595,7 +1591,7 @@ class MultiAgent:
                 "completed" if successful else "error",
                 (time.perf_counter() - started) * 1000,
             )
-            yield {
+            final_response = {
                 "is_task_complete": bool(successful),
                 "require_user_input": False,
                 "status": "completed" if successful else "error",
@@ -1604,41 +1600,28 @@ class MultiAgent:
                     "Returning successful specialist findings without synthesis:\n\n"
                     + fallback
                     if successful
-                    else synthesis.get("content", "Critic failed before final synthesis.")
+                    else synthesis.get(
+                        "content",
+                        "Critic failed before final synthesis.",
+                    )
                 ),
                 "agents_used": agent_types,
                 "collaboration_mode": "multi-agent",
                 "critic_reviewed": False,
                 "collaboration_plan": plan.to_dict(),
-                "collaboration_trace": trace.snapshot(),
                 "cost": cost_budget.snapshot(),
             }
-            ledger_result = self._record_cost_ledger(
-                trace,
-                {
-                    "status": "completed" if successful else "error",
-                    "agents_used": agent_types,
-                    "cost": cost_budget.snapshot(),
-                },
-            )
-            yield {
-                "is_task_complete": bool(successful),
-                "require_user_input": False,
-                "status": "completed" if successful else "error",
-                "content": (
-                    "Critic could not complete the final review. "
-                    "Returning successful specialist findings without synthesis:\n\n"
-                    + fallback
-                    if successful
-                    else synthesis.get("content", "Critic failed before final synthesis.")
+            final_response = self._record_cost_ledger(trace, final_response)
+            final_response["cost"] = {
+                **cost_budget.snapshot(),
+                **(
+                    final_response.get("cost")
+                    if isinstance(final_response.get("cost"), dict)
+                    else {}
                 ),
-                "agents_used": agent_types,
-                "collaboration_mode": "multi-agent",
-                "critic_reviewed": False,
-                "collaboration_plan": plan.to_dict(),
-                "collaboration_trace": trace.snapshot(),
-                "cost": ledger_result.get("cost", cost_budget.snapshot()),
             }
+            final_response["collaboration_trace"] = trace.snapshot()
+            yield final_response
             return
 
         trace.record(
@@ -1647,7 +1630,6 @@ class MultiAgent:
             str(synthesis.get("status", "error")),
             (time.perf_counter() - started) * 1000,
         )
-
         final_response = {
             "is_task_complete": synthesis.get("status") == "completed",
             "require_user_input": synthesis.get("status") == "input_required",
@@ -1656,5 +1638,16 @@ class MultiAgent:
             "agents_used": agent_types,
             "critic_reviewed": synthesis.get("critic_reviewed", False),
             "collaboration_plan": plan.to_dict(),
-            "collaboration_trace": trace.snapshot(),
+            "cost": cost_budget.snapshot(),
         }
+        final_response = self._record_cost_ledger(trace, final_response)
+        final_response["cost"] = {
+            **cost_budget.snapshot(),
+            **(
+                final_response.get("cost")
+                if isinstance(final_response.get("cost"), dict)
+                else {}
+            ),
+        }
+        final_response["collaboration_trace"] = trace.snapshot()
+        yield final_response
