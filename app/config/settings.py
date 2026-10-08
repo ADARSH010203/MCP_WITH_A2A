@@ -353,6 +353,20 @@ class Settings:
         0.0,
         minimum=0.0,
     )
+    a2a_budget_admission_enabled: bool = _env_bool(
+        "A2A_BUDGET_ADMISSION_ENABLED",
+        True,
+    )
+    a2a_budget_admission_output_tokens_per_agent: int = _env_int(
+        "A2A_BUDGET_ADMISSION_OUTPUT_TOKENS_PER_AGENT",
+        512,
+        minimum=1,
+    )
+    a2a_budget_admission_reservation_seconds: int = _env_int(
+        "A2A_BUDGET_ADMISSION_RESERVATION_SECONDS",
+        300,
+        minimum=30,
+    )
     push_notification_require_https: bool = _env_bool(
         "PUSH_NOTIFICATION_REQUIRE_HTTPS",
         True,
