@@ -34,6 +34,48 @@ from app.routing.tracing import CollaborationTrace
 
 
 class Agent(Protocol):
+    def _record_cost_ledger(
+        self,
+        trace: CollaborationTrace,
+        result: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self.cost_governance is None:
+            return result
+
+        payload = result.get("cost")
+        if not isinstance(payload, dict):
+            payload = {}
+
+        try:
+            usage = TokenUsage(
+                input_tokens=max(0, int(payload.get("input_tokens", 0))),
+                output_tokens=max(0, int(payload.get("output_tokens", 0))),
+            )
+            estimated_cost = max(
+                0.0,
+                float(payload.get("estimated_cost_usd", 0.0)),
+            )
+        except (TypeError, ValueError):
+            usage = TokenUsage()
+            estimated_cost = 0.0
+
+        ledger_report = self.cost_governance.record(
+            task_key=trace.trace_id,
+            principal_id=get_memory_principal_id(),
+            usage=usage,
+            estimated_cost_usd=estimated_cost,
+            status=str(result.get("status", "error")),
+            agents=tuple(
+                str(agent)
+                for agent in result.get("agents_used", ())
+            ),
+        )
+        result["cost"] = {
+            **payload,
+            "ledger": ledger_report,
+        }
+        return result
+
     def invoke(self, query: str, session_id: str) -> dict[str, Any]:
         ...
 
@@ -204,6 +246,34 @@ class MultiAgent:
                 0.0,
             ),
         )
+        self.cost_governance: CostGovernance | None = None
+        if getattr(settings, "a2a_cost_ledger_enabled", False):
+            try:
+                self.cost_governance = CostGovernance(
+                    build_cost_ledger(),
+                    daily_token_limit=getattr(
+                        settings,
+                        "a2a_daily_token_limit_per_principal",
+                        0,
+                    ),
+                    monthly_token_limit=getattr(
+                        settings,
+                        "a2a_monthly_token_limit_per_principal",
+                        0,
+                    ),
+                    daily_cost_limit_usd=getattr(
+                        settings,
+                        "a2a_daily_cost_limit_usd_per_principal",
+                        0.0,
+                    ),
+                    monthly_cost_limit_usd=getattr(
+                        settings,
+                        "a2a_monthly_cost_limit_usd_per_principal",
+                        0.0,
+                    ),
+                )
+            except CostLedgerError:
+                raise
         self._agent_lock = threading.Lock()
 
     @staticmethod
