@@ -20,7 +20,7 @@ def test_prometheus_renderer_escapes_labels():
 
     assert "requests_total{" in rendered
     assert 'method="GET"' in rendered
-    assert 'path="a\"b\\nc"' in rendered
+    assert 'path="a\\\"b\\\\nc"' in rendered
 
 
 def test_prometheus_renderer_has_latency_series():
