@@ -187,6 +187,11 @@ class Settings:
         30,
         minimum=0,
     )
+    a2a_task_lease_seconds: float = _env_float(
+        "A2A_TASK_LEASE_SECONDS",
+        300.0,
+        minimum=5.0,
+    )
     a2a_memory_db_path: str = os.getenv(
         "A2A_MEMORY_DB_PATH",
         ".data/a2a_memory.db",
@@ -253,6 +258,16 @@ class Settings:
         "PUSH_NOTIFICATION_ALLOW_PRIVATE_NETWORKS",
         False,
     )
+
+
+def get_worker_id() -> str:
+    """Return an operator-supplied worker ID or an ephemeral process ID."""
+    configured = os.getenv("A2A_WORKER_ID", "").strip()
+    if configured:
+        return configured
+    import socket
+    from uuid import uuid4
+    return f"{socket.gethostname()}:{uuid4().hex}"
 
 
 def _load_mcp_allowed_tools() -> tuple[str, ...]:
