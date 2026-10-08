@@ -1,3 +1,4 @@
+import hashlib
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -44,7 +45,12 @@ def test_cost_endpoint_requires_auth_and_returns_principal_scoped_report(
     with use_memory_principal("tenant-a"):
         governance.record(
             task_key="endpoint-task",
-            principal_id="tenant-a",
+            principal_id=(
+                "bearer:"
+                + hashlib.sha256(
+                    "server-secret".encode("utf-8")
+                ).hexdigest()
+            ),
             usage=TokenUsage(input_tokens=10, output_tokens=5),
             estimated_cost_usd=0.02,
             status="completed",
