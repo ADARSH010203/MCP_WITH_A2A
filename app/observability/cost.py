@@ -21,7 +21,7 @@ class TokenUsage:
         return self.input_tokens + self.output_tokens
 
     @classmethod
-    def from_message(cls, message: Any) -> "TokenUsage | None":
+    def from_message(cls, message: Any) -> TokenUsage | None:
         """Extract usage from common LangChain AIMessage metadata shapes."""
         metadata = getattr(message, "usage_metadata", None)
         if metadata is None:
@@ -56,7 +56,7 @@ class TokenUsage:
         )
 
     @classmethod
-    def from_messages(cls, messages: list[Any]) -> "TokenUsage":
+    def from_messages(cls, messages: list[Any]) -> TokenUsage:
         """Aggregate usage from newly produced model messages only."""
         input_tokens = 0
         output_tokens = 0
