@@ -183,11 +183,25 @@ class MultiAgent:
         )
         self.max_agent_calls_per_task = settings.a2a_max_agent_calls_per_task
         self.cost_policy = CostPolicy(
-            input_usd_per_1m_tokens=settings.a2a_cost_input_usd_per_1m_tokens,
-            output_usd_per_1m_tokens=settings.a2a_cost_output_usd_per_1m_tokens,
-            max_total_tokens_per_task=settings.a2a_max_total_tokens_per_task,
-            max_estimated_cost_usd_per_task=(
-                settings.a2a_max_estimated_cost_usd_per_task
+            input_usd_per_1m_tokens=getattr(
+                settings,
+                "a2a_cost_input_usd_per_1m_tokens",
+                0.0,
+            ),
+            output_usd_per_1m_tokens=getattr(
+                settings,
+                "a2a_cost_output_usd_per_1m_tokens",
+                0.0,
+            ),
+            max_total_tokens_per_task=getattr(
+                settings,
+                "a2a_max_total_tokens_per_task",
+                0,
+            ),
+            max_estimated_cost_usd_per_task=getattr(
+                settings,
+                "a2a_max_estimated_cost_usd_per_task",
+                0.0,
             ),
         )
         self._agent_lock = threading.Lock()
@@ -812,6 +826,7 @@ class MultiAgent:
         session_id: str,
         budget: CallBudget,
         trace: CollaborationTrace | None = None,
+        cost_budget: CostBudget | None = None,
     ) -> AsyncIterable[dict[str, Any]]:
         started = time.perf_counter()
         if trace:
@@ -860,6 +875,39 @@ class MultiAgent:
                 }
                 if is_terminal and terminal_status is None:
                     terminal_status = status
+                    if cost_budget is not None:
+                        usage = None
+                        usage_payload = item.get("usage")
+                        if isinstance(usage_payload, dict):
+                            try:
+                                usage = TokenUsage(
+                                    input_tokens=max(
+                                        0,
+                                        int(usage_payload.get("input_tokens", 0)),
+                                    ),
+                                    output_tokens=max(
+                                        0,
+                                        int(usage_payload.get("output_tokens", 0)),
+                                    ),
+                                )
+                            except (TypeError, ValueError):
+                                usage = None
+
+                        if not cost_budget.record(
+                            usage,
+                            agent=agent_type,
+                            execution_mode="stream",
+                        ):
+                            item = dict(item)
+                            item["status"] = "budget_exceeded"
+                            item["is_task_complete"] = True
+                            item["content"] = (
+                                "LLM token/cost budget exceeded; "
+                                "no further model calls will be made for this task."
+                            )
+                            item["cost_budget_exceeded"] = True
+                            terminal_status = "budget_exceeded"
+
                     if trace:
                         trace.record(
                             "specialist_completed",
