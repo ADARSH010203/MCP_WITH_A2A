@@ -238,221 +238,6 @@ class _SQLiteCostLedger(CostLedger):
         except sqlite3.Error:
             return False
 
-    def reserve_budget(
-        self,
-        *,
-        principal_id: str,
-        reservation_key: str,
-        reserved_tokens: int,
-        reserved_cost_usd: float,
-        daily_token_limit: int,
-        monthly_token_limit: int,
-        daily_cost_limit_usd: float,
-        monthly_cost_limit_usd: float,
-        now: datetime,
-        expires_at: datetime,
-    ) -> bool:
-        principal_key = self._principal_key(principal_id)
-        now_value = now.astimezone(timezone.utc).isoformat()
-        expiry_value = expires_at.astimezone(timezone.utc).isoformat()
-        daily_start = now.astimezone(timezone.utc).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        ).isoformat()
-        monthly_start = now.astimezone(timezone.utc).replace(
-            day=1, hour=0, minute=0, second=0, microsecond=0
-        ).isoformat()
-
-        with self._lock:
-            self.connection.execute("BEGIN IMMEDIATE")
-            try:
-                self.connection.execute(
-                    "DELETE FROM cost_budget_reservations WHERE expires_at <= ?",
-                    (now_value,),
-                )
-                daily = self.connection.execute(
-                    """
-                    SELECT COALESCE(SUM(input_tokens + output_tokens), 0),
-                           COALESCE(SUM(estimated_cost_usd), 0)
-                    FROM cost_ledger
-                    WHERE principal_key = ? AND recorded_at >= ?
-                    """,
-                    (principal_key, daily_start),
-                ).fetchone()
-                monthly = self.connection.execute(
-                    """
-                    SELECT COALESCE(SUM(input_tokens + output_tokens), 0),
-                           COALESCE(SUM(estimated_cost_usd), 0)
-                    FROM cost_ledger
-                    WHERE principal_key = ? AND recorded_at >= ?
-                    """,
-                    (principal_key, monthly_start),
-                ).fetchone()
-                reserved = self.connection.execute(
-                    """
-                    SELECT COALESCE(SUM(reserved_tokens), 0),
-                           COALESCE(SUM(reserved_cost_usd), 0)
-                    FROM cost_budget_reservations
-                    WHERE principal_key = ? AND expires_at > ?
-                    """,
-                    (principal_key, now_value),
-                ).fetchone()
-
-                daily_tokens = int(daily[0]) + int(reserved[0]) + reserved_tokens
-                monthly_tokens = int(monthly[0]) + int(reserved[0]) + reserved_tokens
-                daily_cost = float(daily[1]) + float(reserved[1]) + reserved_cost_usd
-                monthly_cost = float(monthly[1]) + float(reserved[1]) + reserved_cost_usd
-
-                within_budget = (
-                    (daily_token_limit <= 0 or daily_tokens <= daily_token_limit)
-                    and (monthly_token_limit <= 0 or monthly_tokens <= monthly_token_limit)
-                    and (daily_cost_limit_usd <= 0 or daily_cost <= daily_cost_limit_usd)
-                    and (monthly_cost_limit_usd <= 0 or monthly_cost <= monthly_cost_limit_usd)
-                )
-                if not within_budget:
-                    self.connection.rollback()
-                    return False
-
-                self.connection.execute(
-                    """
-                    INSERT INTO cost_budget_reservations (
-                        reservation_key,
-                        principal_key,
-                        reserved_tokens,
-                        reserved_cost_usd,
-                        created_at,
-                        expires_at
-                    ) VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        reservation_key,
-                        principal_key,
-                        reserved_tokens,
-                        reserved_cost_usd,
-                        now_value,
-                        expiry_value,
-                    ),
-                )
-                self.connection.commit()
-                return True
-            except Exception:
-                self.connection.rollback()
-                raise
-
-    def release_budget(self, reservation_key: str) -> None:
-        with self._lock:
-            self.connection.execute(
-                "DELETE FROM cost_budget_reservations WHERE reservation_key = ?",
-                (reservation_key,),
-            )
-            self.connection.commit()
-
-    def reserve_budget(
-        self,
-        *,
-        principal_id: str,
-        reservation_key: str,
-        reserved_tokens: int,
-        reserved_cost_usd: float,
-        daily_token_limit: int,
-        monthly_token_limit: int,
-        daily_cost_limit_usd: float,
-        monthly_cost_limit_usd: float,
-        now: datetime,
-        expires_at: datetime,
-    ) -> bool:
-        principal_key = self._principal_key(principal_id)
-        utc_now = now.astimezone(timezone.utc)
-        daily_start = utc_now.replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
-        monthly_start = utc_now.replace(
-            day=1, hour=0, minute=0, second=0, microsecond=0
-        )
-
-        with self._lock, self.connection.transaction():
-            with self.connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
-                    (principal_key,),
-                )
-                cursor.execute(
-                    "DELETE FROM cost_budget_reservations WHERE expires_at <= %s",
-                    (utc_now,),
-                )
-                cursor.execute(
-                    """
-                    SELECT COALESCE(SUM(input_tokens + output_tokens), 0),
-                           COALESCE(SUM(estimated_cost_usd), 0)
-                    FROM cost_ledger
-                    WHERE principal_key = %s AND recorded_at >= %s
-                    """,
-                    (principal_key, daily_start),
-                )
-                daily = cursor.fetchone()
-                cursor.execute(
-                    """
-                    SELECT COALESCE(SUM(input_tokens + output_tokens), 0),
-                           COALESCE(SUM(estimated_cost_usd), 0)
-                    FROM cost_ledger
-                    WHERE principal_key = %s AND recorded_at >= %s
-                    """,
-                    (principal_key, monthly_start),
-                )
-                monthly = cursor.fetchone()
-                cursor.execute(
-                    """
-                    SELECT COALESCE(SUM(reserved_tokens), 0),
-                           COALESCE(SUM(reserved_cost_usd), 0)
-                    FROM cost_budget_reservations
-                    WHERE principal_key = %s AND expires_at > %s
-                    """,
-                    (principal_key, utc_now),
-                )
-                reserved = cursor.fetchone()
-
-                daily_tokens = int(daily[0]) + int(reserved[0]) + reserved_tokens
-                monthly_tokens = int(monthly[0]) + int(reserved[0]) + reserved_tokens
-                daily_cost = float(daily[1]) + float(reserved[1]) + reserved_cost_usd
-                monthly_cost = float(monthly[1]) + float(reserved[1]) + reserved_cost_usd
-
-                within_budget = (
-                    (daily_token_limit <= 0 or daily_tokens <= daily_token_limit)
-                    and (monthly_token_limit <= 0 or monthly_tokens <= monthly_token_limit)
-                    and (daily_cost_limit_usd <= 0 or daily_cost <= daily_cost_limit_usd)
-                    and (monthly_cost_limit_usd <= 0 or monthly_cost <= monthly_cost_limit_usd)
-                )
-                if not within_budget:
-                    return False
-
-                cursor.execute(
-                    """
-                    INSERT INTO cost_budget_reservations (
-                        reservation_key,
-                        principal_key,
-                        reserved_tokens,
-                        reserved_cost_usd,
-                        created_at,
-                        expires_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s)
-                    """,
-                    (
-                        reservation_key,
-                        principal_key,
-                        reserved_tokens,
-                        reserved_cost_usd,
-                        utc_now,
-                        expires_at.astimezone(timezone.utc),
-                    ),
-                )
-                return True
-
-    def release_budget(self, reservation_key: str) -> None:
-        with self._lock, self.connection.cursor() as cursor:
-            cursor.execute(
-                "DELETE FROM cost_budget_reservations WHERE reservation_key = %s",
-                (reservation_key,),
-            )
-
     def close(self) -> None:
         with self._lock:
             self.connection.close()
@@ -590,6 +375,113 @@ class _PostgresCostLedger(CostLedger):
             return True
         except psycopg.Error:
             return False
+
+    def reserve_budget(
+        self,
+        *,
+        principal_id: str,
+        reservation_key: str,
+        reserved_tokens: int,
+        reserved_cost_usd: float,
+        daily_token_limit: int,
+        monthly_token_limit: int,
+        daily_cost_limit_usd: float,
+        monthly_cost_limit_usd: float,
+        now: datetime,
+        expires_at: datetime,
+    ) -> bool:
+        principal_key = self._principal_key(principal_id)
+        utc_now = now.astimezone(timezone.utc)
+        daily_start = utc_now.replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        monthly_start = utc_now.replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        )
+
+        with self._lock, self.connection.transaction():
+            with self.connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                    (principal_key,),
+                )
+                cursor.execute(
+                    "DELETE FROM cost_budget_reservations WHERE expires_at <= %s",
+                    (utc_now,),
+                )
+                cursor.execute(
+                    """
+                    SELECT COALESCE(SUM(input_tokens + output_tokens), 0),
+                           COALESCE(SUM(estimated_cost_usd), 0)
+                    FROM cost_ledger
+                    WHERE principal_key = %s AND recorded_at >= %s
+                    """,
+                    (principal_key, daily_start),
+                )
+                daily = cursor.fetchone()
+                cursor.execute(
+                    """
+                    SELECT COALESCE(SUM(input_tokens + output_tokens), 0),
+                           COALESCE(SUM(estimated_cost_usd), 0)
+                    FROM cost_ledger
+                    WHERE principal_key = %s AND recorded_at >= %s
+                    """,
+                    (principal_key, monthly_start),
+                )
+                monthly = cursor.fetchone()
+                cursor.execute(
+                    """
+                    SELECT COALESCE(SUM(reserved_tokens), 0),
+                           COALESCE(SUM(reserved_cost_usd), 0)
+                    FROM cost_budget_reservations
+                    WHERE principal_key = %s AND expires_at > %s
+                    """,
+                    (principal_key, utc_now),
+                )
+                reserved = cursor.fetchone()
+
+                daily_tokens = int(daily[0]) + int(reserved[0]) + reserved_tokens
+                monthly_tokens = int(monthly[0]) + int(reserved[0]) + reserved_tokens
+                daily_cost = float(daily[1]) + float(reserved[1]) + reserved_cost_usd
+                monthly_cost = float(monthly[1]) + float(reserved[1]) + reserved_cost_usd
+
+                within_budget = (
+                    (daily_token_limit <= 0 or daily_tokens <= daily_token_limit)
+                    and (monthly_token_limit <= 0 or monthly_tokens <= monthly_token_limit)
+                    and (daily_cost_limit_usd <= 0 or daily_cost <= daily_cost_limit_usd)
+                    and (monthly_cost_limit_usd <= 0 or monthly_cost <= monthly_cost_limit_usd)
+                )
+                if not within_budget:
+                    return False
+
+                cursor.execute(
+                    """
+                    INSERT INTO cost_budget_reservations (
+                        reservation_key,
+                        principal_key,
+                        reserved_tokens,
+                        reserved_cost_usd,
+                        created_at,
+                        expires_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        reservation_key,
+                        principal_key,
+                        reserved_tokens,
+                        reserved_cost_usd,
+                        utc_now,
+                        expires_at.astimezone(timezone.utc),
+                    ),
+                )
+                return True
+
+    def release_budget(self, reservation_key: str) -> None:
+        with self._lock, self.connection.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM cost_budget_reservations WHERE reservation_key = %s",
+                (reservation_key,),
+            )
 
     def close(self) -> None:
         with self._lock:
