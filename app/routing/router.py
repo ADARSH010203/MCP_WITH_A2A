@@ -1279,6 +1279,7 @@ class MultiAgent:
             "agents_used": agent_types,
             "collaboration_mode": "multi-agent",
             "collaboration_trace": trace.snapshot(),
+            "cost": cost_budget.snapshot(),
         }
 
         specialist_groups = sorted(
@@ -1314,6 +1315,7 @@ class MultiAgent:
                             None,
                             budget,
                             trace,
+                            cost_budget,
                         )
                     )
                     for step in independent_steps
@@ -1338,6 +1340,7 @@ class MultiAgent:
                         "collaboration_mode": "multi-agent",
                         "collaboration_plan": plan.to_dict(),
                         "collaboration_trace": trace.snapshot(),
+                        "cost": cost_budget.snapshot(),
                     }
 
             for step in dependent_steps:
@@ -1362,6 +1365,7 @@ class MultiAgent:
                     upstream,
                     budget,
                     trace,
+                    cost_budget,
                 )
                 stream_outcomes.append(outcome)
                 trace.record(
@@ -1387,6 +1391,7 @@ class MultiAgent:
                     "collaboration_mode": "multi-agent",
                     "collaboration_plan": plan.to_dict(),
                     "collaboration_trace": trace.snapshot(),
+                    "cost": cost_budget.snapshot(),
                 }
 
         yield {
@@ -1398,6 +1403,7 @@ class MultiAgent:
             "collaboration_mode": "multi-agent",
             "collaboration_plan": plan.to_dict(),
             "collaboration_trace": trace.snapshot(),
+            "cost": cost_budget.snapshot(),
         }
 
         synthesis = await asyncio.to_thread(
@@ -1406,6 +1412,7 @@ class MultiAgent:
             stream_outcomes,
             budget,
             trace,
+            cost_budget,
         )
 
         if synthesis.get("status") in {"budget_exceeded", "timeout", "error"}:
@@ -1440,6 +1447,7 @@ class MultiAgent:
                 "critic_reviewed": False,
                 "collaboration_plan": plan.to_dict(),
                 "collaboration_trace": trace.snapshot(),
+                "cost": cost_budget.snapshot(),
             }
             return
 
