@@ -263,6 +263,13 @@ class A2AServer:
                     status_code=401,
                 )
 
+        if "text/plain" in request.headers.get("accept", ""):
+            from fastapi.responses import PlainTextResponse
+
+            return PlainTextResponse(
+                METRICS.prometheus(),
+                media_type="text/plain; version=0.0.4; charset=utf-8",
+            )
         return JSONResponse(METRICS.snapshot())
 
     async def _readiness_check(self, _request: Request) -> JSONResponse:
