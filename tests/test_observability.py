@@ -87,6 +87,30 @@ def test_a2a_server_sets_request_id_and_records_http_metrics(monkeypatch):
     assert payload["status"] == "ok"
 
 
+def test_metrics_endpoint_supports_prometheus_format(monkeypatch):
+    import app.a2a.server as server_module
+
+    monkeypatch.setattr(
+        server_module,
+        "settings",
+        SimpleNamespace(
+            a2a_api_key="",
+            a2a_cors_origins=(),
+        ),
+    )
+    server = A2AServer()
+    client = TestClient(server.app)
+
+    response = client.get(
+        "/metrics",
+        headers={"Accept": "text/plain; version=0.0.4"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    assert isinstance(response.text, str)
+
+
 def test_metrics_endpoint_requires_a2a_auth_when_configured(monkeypatch):
     import app.a2a.server as server_module
 
