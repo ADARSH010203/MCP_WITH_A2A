@@ -8,7 +8,7 @@ import json
 import sqlite3
 import threading
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -349,8 +349,20 @@ def build_cost_ledger() -> CostLedger:
 class CostGovernance:
     """Record task usage and report daily/monthly principal budgets."""
 
-    def __init__(self, ledger: CostLedger) -> None:
+    def __init__(
+        self,
+        ledger: CostLedger,
+        *,
+        daily_token_limit: int = 0,
+        monthly_token_limit: int = 0,
+        daily_cost_limit_usd: float = 0.0,
+        monthly_cost_limit_usd: float = 0.0,
+    ) -> None:
         self.ledger = ledger
+        self.daily_token_limit = max(0, daily_token_limit)
+        self.monthly_token_limit = max(0, monthly_token_limit)
+        self.daily_cost_limit_usd = max(0.0, daily_cost_limit_usd)
+        self.monthly_cost_limit_usd = max(0.0, monthly_cost_limit_usd)
 
     @staticmethod
     def _period_start(period: str, now: datetime) -> datetime:
@@ -410,18 +422,60 @@ class CostGovernance:
             "recorded": inserted,
             "daily": daily.to_dict(),
             "monthly": monthly.to_dict(),
+            "budget": self._budget_status(daily, monthly),
+        }
+
+    def _budget_status(
+        self,
+        daily: CostTotals,
+        monthly: CostTotals,
+    ) -> dict[str, Any]:
+        daily_tokens_ok = (
+            self.daily_token_limit <= 0
+            or daily.total_tokens <= self.daily_token_limit
+        )
+        monthly_tokens_ok = (
+            self.monthly_token_limit <= 0
+            or monthly.total_tokens <= self.monthly_token_limit
+        )
+        daily_cost_ok = (
+            self.daily_cost_limit_usd <= 0
+            or daily.estimated_cost_usd <= self.daily_cost_limit_usd
+        )
+        monthly_cost_ok = (
+            self.monthly_cost_limit_usd <= 0
+            or monthly.estimated_cost_usd <= self.monthly_cost_limit_usd
+        )
+        return {
+            "within_budget": (
+                daily_tokens_ok
+                and monthly_tokens_ok
+                and daily_cost_ok
+                and monthly_cost_ok
+            ),
+            "daily": {
+                "token_limit": self.daily_token_limit,
+                "cost_limit_usd": self.daily_cost_limit_usd,
+            },
+            "monthly": {
+                "token_limit": self.monthly_token_limit,
+                "cost_limit_usd": self.monthly_cost_limit_usd,
+            },
         }
 
     def report(self, principal_id: str) -> dict[str, Any]:
         now = datetime.now(timezone.utc)
+        daily = self.ledger.totals(
+            principal_id,
+            since=self._period_start("day", now),
+        )
+        monthly = self.ledger.totals(
+            principal_id,
+            since=self._period_start("month", now),
+        )
         return {
             "principal_scoped": True,
-            "daily": self.ledger.totals(
-                principal_id,
-                since=self._period_start("day", now),
-            ).to_dict(),
-            "monthly": self.ledger.totals(
-                principal_id,
-                since=self._period_start("month", now),
-            ).to_dict(),
+            "daily": daily.to_dict(),
+            "monthly": monthly.to_dict(),
+            "budget": self._budget_status(daily, monthly),
         }
