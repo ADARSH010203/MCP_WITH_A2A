@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from threading import Lock
 from typing import Any
@@ -51,7 +51,15 @@ class TraceEvent:
     details: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        return {
+            "sequence": self.sequence,
+            "stage": self.stage,
+            "actor": self.actor,
+            "status": self.status,
+            "duration_ms": self.duration_ms,
+            "attempt": self.attempt,
+            "details": self.details,
+        }
 
 
 class CollaborationTrace:
