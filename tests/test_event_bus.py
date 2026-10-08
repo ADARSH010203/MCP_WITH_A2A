@@ -59,6 +59,7 @@ def test_event_bus_bridges_events_between_worker_managers():
 
         queue = await manager_two.setup_sse_consumer("distributed-task")
         bridge = manager_two.event_bridge_tasks[id(queue)]
+        await asyncio.sleep(0)
 
         event = TaskStatusUpdateEvent(
             id="distributed-task",
