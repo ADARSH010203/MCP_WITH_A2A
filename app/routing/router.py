@@ -1006,6 +1006,7 @@ class MultiAgent:
         agent_types = list(plan.agents)
         budget = CallBudget(self.max_agent_calls_per_task)
         cost_budget = CostBudget(self.cost_policy)
+        cost_budget = CostBudget(self.cost_policy)
         outcomes: list[dict[str, Any]] = []
 
         specialist_groups = sorted(
@@ -1184,6 +1185,7 @@ class MultiAgent:
                 session_id,
                 budget,
                 trace=trace,
+                cost_budget=cost_budget,
             )
             result.setdefault("agents_used", [agent_type])
             result.setdefault("collaboration_mode", "single-agent")
@@ -1200,7 +1202,8 @@ class MultiAgent:
                 str(result.get("status", "error")),
                 (time.perf_counter() - started) * 1000,
             )
-            result["collaboration_trace"] = trace.snapshot()
+            result["cost"] = result.get("cost", cost_budget.snapshot())
+        result["collaboration_trace"] = trace.snapshot()
             return result
 
         result = self._run_collaboration(query, session_id, plan, trace)
