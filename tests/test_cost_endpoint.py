@@ -48,7 +48,7 @@ def test_cost_endpoint_requires_auth_and_returns_principal_scoped_report(
             principal_id=(
                 "bearer:"
                 + hashlib.sha256(
-                    "server-secret".encode("utf-8")
+                    b"server-secret"
                 ).hexdigest()
             ),
             usage=TokenUsage(input_tokens=10, output_tokens=5),
