@@ -71,6 +71,7 @@ def test_readiness_reports_all_critical_dependencies(monkeypatch):
         "task_store",
         "mcp",
         "remote_specialists",
+        "event_bus",
     }
 
 
