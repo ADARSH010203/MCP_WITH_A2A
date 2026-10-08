@@ -136,3 +136,37 @@ def test_metrics_endpoint_requires_a2a_auth_when_configured(monkeypatch):
     body = authorized.json()
     assert "counters" in body
     assert "latencies" in body
+
+
+def test_metrics_endpoint_respects_prometheus_enable_flag(monkeypatch):
+    import app.a2a.server as server_module
+
+    monkeypatch.setattr(
+        server_module,
+        "settings",
+        SimpleNamespace(
+            a2a_api_key="",
+            a2a_cors_origins=(),
+            prometheus_metrics_enabled=False,
+        ),
+    )
+    server = A2AServer()
+    client = TestClient(server.app)
+
+    response = client.get("/metrics")
+    assert response.status_code == 404
+
+
+def test_http_response_contains_otel_correlation_headers():
+    server = A2AServer()
+    client = TestClient(server.app)
+
+    response = client.get(
+        "/healthz",
+        headers={"X-Request-ID": "otel-correlation-test"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["X-Request-ID"] == "otel-correlation-test"
+    assert len(response.headers["X-Trace-ID"]) == 32
+    assert len(response.headers["X-Span-ID"]) == 16
