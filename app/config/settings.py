@@ -145,6 +145,14 @@ class Settings:
         10.0,
         minimum=0.1,
     )
+    a2a_task_store_backend: str = os.getenv(
+        "A2A_TASK_STORE_BACKEND",
+        "sqlite",
+    ).strip().casefold()
+    a2a_task_database_url: str = os.getenv(
+        "A2A_TASK_DATABASE_URL",
+        "",
+    ).strip()
     a2a_task_db_path: str = os.getenv("A2A_TASK_DB_PATH", ".data/a2a_tasks.db")
     a2a_api_key: str = os.getenv("A2A_API_KEY", "")
     a2a_rate_limit_per_minute: int = _env_int(
