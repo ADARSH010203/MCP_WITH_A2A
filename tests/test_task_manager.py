@@ -336,3 +336,103 @@ def test_streaming_timeout_is_marked_failed_and_terminal():
         assert events[-1].result.final is True
 
     asyncio.run(scenario())
+
+
+def test_second_worker_cannot_execute_task_with_live_lease(tmp_path):
+    async def scenario():
+        db_path = str(tmp_path / "shared.db")
+        store_one = SQLiteTaskStore(db_path)
+        store_two = SQLiteTaskStore(db_path)
+
+        manager_one = AgentTaskManager(
+            FakeAgent(
+                {
+                    "status": "completed",
+                    "is_task_complete": True,
+                    "require_user_input": False,
+                    "content": "worker one",
+                }
+            ),
+            FakeNotificationAuth(),
+            store=store_one,
+        )
+        manager_two_agent = FakeAgent(
+            {
+                "status": "completed",
+                "is_task_complete": True,
+                "require_user_input": False,
+                "content": "worker two",
+            }
+        )
+        manager_two = AgentTaskManager(
+            manager_two_agent,
+            FakeNotificationAuth(),
+            store=store_two,
+        )
+
+        request = make_request("leased-task")
+        _, created = await manager_one.get_or_create_task(request.params)
+        assert created is True
+        assert store_one.claim_task("leased-task", "worker-one", 60) is True
+
+        response = await manager_two.on_send_task(request)
+
+        assert response.result is not None
+        assert response.result.status.state == TaskState.SUBMITTED
+        assert manager_two_agent.invoke_calls == 0
+
+        store_one.close()
+        store_two.close()
+
+    asyncio.run(scenario())
+
+
+def test_worker_takes_over_expired_lease(tmp_path):
+    async def scenario():
+        db_path = str(tmp_path / "shared.db")
+        store_one = SQLiteTaskStore(db_path)
+        store_two = SQLiteTaskStore(db_path)
+
+        manager_one = AgentTaskManager(
+            FakeAgent(
+                {
+                    "status": "completed",
+                    "is_task_complete": True,
+                    "require_user_input": False,
+                    "content": "worker one",
+                }
+            ),
+            FakeNotificationAuth(),
+            store=store_one,
+        )
+        manager_two_agent = FakeAgent(
+            {
+                "status": "completed",
+                "is_task_complete": True,
+                "require_user_input": False,
+                "content": "worker two",
+            }
+        )
+        manager_two = AgentTaskManager(
+            manager_two_agent,
+            FakeNotificationAuth(),
+            store=store_two,
+        )
+
+        request = make_request("expired-lease-task")
+        task, created = await manager_one.get_or_create_task(request.params)
+        assert created is True
+        assert task.status.state == TaskState.SUBMITTED
+        assert store_one.claim_task("expired-lease-task", "worker-one", 0.05) is True
+
+        await asyncio.sleep(0.08)
+        response = await manager_two.on_send_task(request)
+
+        assert response.result is not None
+        assert response.result.status.state == TaskState.COMPLETED
+        assert manager_two_agent.invoke_calls == 1
+
+        store_one.close()
+        store_two.close()
+
+    asyncio.run(scenario())

@@ -33,7 +33,7 @@ from app.a2a.models import (
 from app.a2a.push_notification_auth import PushNotificationSenderAuth
 from app.a2a.task_store import SQLiteTaskStore
 from app.config.constants import SUPPORTED_CONTENT_TYPES
-from app.config.settings import settings
+from app.config.settings import get_worker_id, settings
 
 
 class AgentTaskManager(InMemoryTaskManager):
@@ -47,6 +47,13 @@ class AgentTaskManager(InMemoryTaskManager):
         self.agent = agent
         self.notification_sender_auth = notification_sender_auth
         self.streaming_tasks: dict[str, asyncio.Task[None]] = {}
+        self.active_task_ids: set[str] = set()
+        self.worker_id = get_worker_id()
+        self.task_lease_seconds = getattr(
+            settings,
+            "a2a_task_lease_seconds",
+            300.0,
+        )
         self.execution_semaphore = asyncio.Semaphore(
             max(1, settings.a2a_max_concurrent_tasks)
         )
@@ -115,6 +122,39 @@ class AgentTaskManager(InMemoryTaskManager):
 
         return CancelTaskResponse(id=request.id, result=task)
 
+    async def _claim_task(self, task_id: str) -> bool:
+        return await asyncio.to_thread(
+            self.store.claim_task,
+            task_id,
+            self.worker_id,
+            self.task_lease_seconds,
+        )
+
+    async def _release_task(self, task_id: str) -> None:
+        await asyncio.to_thread(
+            self.store.release_task,
+            task_id,
+            self.worker_id,
+        )
+
+    async def _lease_heartbeat(self, task_id: str) -> None:
+        interval = max(1.0, self.task_lease_seconds / 3)
+        while True:
+            await asyncio.sleep(interval)
+            renewed = await asyncio.to_thread(
+                self.store.renew_task_lease,
+                task_id,
+                self.worker_id,
+                self.task_lease_seconds,
+            )
+            if not renewed:
+                logging.getLogger(__name__).warning(
+                    "Lost task lease for %s on worker %s",
+                    task_id,
+                    self.worker_id,
+                )
+                return
+
     async def _start_streaming_task(
         self,
         request: SendTaskStreamingRequest,
@@ -135,6 +175,21 @@ class AgentTaskManager(InMemoryTaskManager):
     async def _run_streaming_agent(self, request: SendTaskStreamingRequest) -> None:
         task_send_params = request.params
         query = self._get_user_query(task_send_params)
+
+        claimed = await self._claim_task(task_send_params.id)
+        if not claimed:
+            await self.enqueue_events_for_sse(
+                task_send_params.id,
+                UnsupportedOperationError(
+                    message="Task is being executed by another worker.",
+                ),
+            )
+            return
+
+        heartbeat = asyncio.create_task(
+            self._lease_heartbeat(task_send_params.id)
+        )
+        self.active_task_ids.add(task_send_params.id)
 
         try:
             async with self.execution_semaphore:
@@ -264,6 +319,11 @@ class AgentTaskManager(InMemoryTaskManager):
                     final=True,
                 ),
             )
+        finally:
+            self.active_task_ids.discard(task_send_params.id)
+            heartbeat.cancel()
+            await asyncio.gather(heartbeat, return_exceptions=True)
+            await self._release_task(task_send_params.id)
 
     def _validate_request(
         self, request: SendTaskRequest | SendTaskStreamingRequest
@@ -319,11 +379,21 @@ class AgentTaskManager(InMemoryTaskManager):
                 error=InvalidParamsError(message=str(exc)),
             )
 
-        if not created:
+        if not created and self._is_terminal(existing_task):
             return SendTaskResponse(
                 id=request.id,
                 result=self.append_task_history(
-                    existing_task, request.params.historyLength
+                    existing_task,
+                    request.params.historyLength,
+                ),
+            )
+
+        if not created and request.params.id in self.active_task_ids:
+            return SendTaskResponse(
+                id=request.id,
+                result=self.append_task_history(
+                    existing_task,
+                    request.params.historyLength,
                 ),
             )
 
@@ -352,12 +422,37 @@ class AgentTaskManager(InMemoryTaskManager):
                     ),
                 )
 
-        task = await self.update_store(
-            request.params.id, TaskStatus(state=TaskState.WORKING), []
+        claimed = await self._claim_task(request.params.id)
+        if not claimed:
+            current = await self.get_stored_task(request.params.id)
+            if current is None:
+                return SendTaskResponse(
+                    id=request.id,
+                    error=InternalError(
+                        message="Task disappeared while acquiring execution lease",
+                    ),
+                )
+            return SendTaskResponse(
+                id=request.id,
+                result=self.append_task_history(
+                    current,
+                    request.params.historyLength,
+                ),
+            )
+
+        heartbeat = asyncio.create_task(
+            self._lease_heartbeat(request.params.id)
         )
-        await self.send_task_notification(task)
+        self.active_task_ids.add(request.params.id)
 
         try:
+            task = await self.update_store(
+                request.params.id,
+                TaskStatus(state=TaskState.WORKING),
+                [],
+            )
+            await self.send_task_notification(task)
+
             query = self._get_user_query(request.params)
             async with self.execution_semaphore:
                 agent_response = await asyncio.to_thread(
@@ -365,6 +460,8 @@ class AgentTaskManager(InMemoryTaskManager):
                     query,
                     request.params.sessionId,
                 )
+
+            return await self._process_agent_response(request, agent_response)
         except Exception:
             logging.getLogger(__name__).exception(
                 "Agent invocation failed for task %s", request.params.id
@@ -384,6 +481,11 @@ class AgentTaskManager(InMemoryTaskManager):
             task = await self.update_store(request.params.id, failure_status, [])
             await self.send_task_notification(task)
             return SendTaskResponse(id=request.id, result=task)
+        finally:
+            self.active_task_ids.discard(request.params.id)
+            heartbeat.cancel()
+            await asyncio.gather(heartbeat, return_exceptions=True)
+            await self._release_task(request.params.id)
 
         return await self._process_agent_response(request, agent_response)
 
@@ -441,6 +543,21 @@ class AgentTaskManager(InMemoryTaskManager):
 
             if not created and self._is_terminal(existing_task):
                 queue = await self._queue_current_task_state(existing_task)
+            elif (
+                not created
+                and request.params.id not in self.streaming_tasks
+                and await asyncio.to_thread(
+                    self.store.task_claimed_by_other,
+                    request.params.id,
+                    self.worker_id,
+                )
+            ):
+                return JSONRPCResponse(
+                    id=request.id,
+                    error=UnsupportedOperationError(
+                        message="Task is currently running on another worker.",
+                    ),
+                )
             else:
                 queue = await self.setup_sse_consumer(request.params.id)
                 if request.params.id not in self.streaming_tasks:

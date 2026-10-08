@@ -83,6 +83,7 @@ class InMemoryTaskManager(TaskManager):
     def __init__(self, store: SQLiteTaskStore | None = None):
         self.store = store or SQLiteTaskStore(settings.a2a_task_db_path)
         self.store.purge_expired(settings.a2a_task_retention_days)
+        self.store.purge_expired_leases()
         self.tasks: dict[str, Task] = self.store.load_tasks()
         self.push_notification_infos: dict[str, PushNotificationConfig] = (
             self.store.load_push_notification_configs()
@@ -96,16 +97,23 @@ class InMemoryTaskManager(TaskManager):
         return self.store.ping()
 
     async def get_stored_task(self, task_id: str) -> Task | None:
-        """Return a stored task without changing its state."""
+        """Read the latest task state from durable storage."""
         async with self.lock:
-            return self.tasks.get(task_id)
+            task = self.store.load_task(task_id)
+            if task is None:
+                self.tasks.pop(task_id, None)
+                return None
+            self.tasks[task_id] = task
+            return task
 
     async def on_get_task(self, request: GetTaskRequest) -> GetTaskResponse:
         logger.info(f"Getting task {request.params.id}")
         task_query_params: TaskQueryParams = request.params
 
         async with self.lock:
-            task = self.tasks.get(task_query_params.id)
+            task = self.store.load_task(task_query_params.id)
+            if task is not None:
+                self.tasks[task_query_params.id] = task
             if task is None:
                 return GetTaskResponse(id=request.id, error=TaskNotFoundError())
 
@@ -222,8 +230,9 @@ class InMemoryTaskManager(TaskManager):
         logger.info("Getting or creating task %s", task_send_params.id)
 
         async with self.lock:
-            task = self.tasks.get(task_send_params.id)
+            task = self.store.load_task(task_send_params.id)
             if task is not None:
+                self.tasks[task_send_params.id] = task
                 existing_message = (task.history or [None])[0]
                 if (
                     task.sessionId != task_send_params.sessionId
@@ -242,9 +251,9 @@ class InMemoryTaskManager(TaskManager):
                 status=TaskStatus(state=TaskState.SUBMITTED),
                 history=[task_send_params.message],
             )
-            self.tasks[task_send_params.id] = task
-            self.store.save_task(task)
-            return task, True
+            task, created = self.store.create_task_if_absent(task)
+            self.tasks[task.id] = task
+            return task, created
 
     async def upsert_task(self, task_send_params: TaskSendParams) -> Task:
         """Create a task or return the existing matching task."""
@@ -260,12 +269,11 @@ class InMemoryTaskManager(TaskManager):
         self, task_id: str, status: TaskStatus, artifacts: list[Artifact]
     ) -> Task:
         async with self.lock:
-            try:
-                task = self.tasks[task_id]
-            except KeyError:
+            task = self.store.load_task(task_id)
+            if task is None:
                 logger.error(f"Task {task_id} not found for updating the task")
                 raise ValueError(f"Task {task_id} not found")
-
+            self.tasks[task_id] = task
             task.status = status
 
             if status.message is not None:
