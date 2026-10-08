@@ -2,6 +2,7 @@
 
 import sqlite3
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -41,6 +42,16 @@ class SQLiteTaskStore:
                 )
                 """
             )
+            self.connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS task_leases (
+                    task_id TEXT PRIMARY KEY,
+                    worker_id TEXT NOT NULL,
+                    lease_until REAL NOT NULL,
+                    updated_at REAL NOT NULL
+                )
+                """
+            )
             self.connection.commit()
 
     def ping(self) -> bool:
@@ -51,6 +62,143 @@ class SQLiteTaskStore:
             return True
         except sqlite3.Error:
             return False
+
+    def load_task(self, task_id: str) -> Task | None:
+        """Load one task directly from durable storage."""
+        with self._lock:
+            row = self.connection.execute(
+                "SELECT payload FROM tasks WHERE id = ?",
+                (task_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return Task.model_validate_json(row[0])
+
+    def claim_task(
+        self,
+        task_id: str,
+        worker_id: str,
+        lease_seconds: float,
+    ) -> bool:
+        """Atomically claim a task until the lease expires."""
+        if not worker_id:
+            raise ValueError("worker_id is required")
+        if lease_seconds <= 0:
+            raise ValueError("lease_seconds must be positive")
+
+        now = time.time()
+        lease_until = now + lease_seconds
+
+        with self._lock:
+            try:
+                self.connection.execute("BEGIN IMMEDIATE")
+                row = self.connection.execute(
+                    "SELECT worker_id, lease_until FROM task_leases WHERE task_id = ?",
+                    (task_id,),
+                ).fetchone()
+
+                if row is not None:
+                    current_worker, current_until = row
+                    if current_worker != worker_id and float(current_until) > now:
+                        self.connection.rollback()
+                        return False
+
+                self.connection.execute(
+                    """
+                    INSERT INTO task_leases (
+                        task_id,
+                        worker_id,
+                        lease_until,
+                        updated_at
+                    )
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(task_id) DO UPDATE SET
+                        worker_id=excluded.worker_id,
+                        lease_until=excluded.lease_until,
+                        updated_at=excluded.updated_at
+                    """,
+                    (task_id, worker_id, lease_until, now),
+                )
+                self.connection.commit()
+                return True
+            except Exception:
+                self.connection.rollback()
+                raise
+
+    def renew_task_lease(
+        self,
+        task_id: str,
+        worker_id: str,
+        lease_seconds: float,
+    ) -> bool:
+        """Extend a lease only when this worker still owns it."""
+        if lease_seconds <= 0:
+            raise ValueError("lease_seconds must be positive")
+
+        now = time.time()
+        lease_until = now + lease_seconds
+        with self._lock:
+            cursor = self.connection.execute(
+                """
+                UPDATE task_leases
+                SET lease_until = ?, updated_at = ?
+                WHERE task_id = ? AND worker_id = ?
+                """,
+                (lease_until, now, task_id, worker_id),
+            )
+            self.connection.commit()
+            return cursor.rowcount == 1
+
+    def release_task(
+        self,
+        task_id: str,
+        worker_id: str,
+    ) -> bool:
+        """Release a task lease only when owned by the current worker."""
+        with self._lock:
+            cursor = self.connection.execute(
+                """
+                DELETE FROM task_leases
+                WHERE task_id = ? AND worker_id = ?
+                """,
+                (task_id, worker_id),
+            )
+            self.connection.commit()
+            return cursor.rowcount == 1
+
+    def task_claimed_by_other(
+        self,
+        task_id: str,
+        worker_id: str,
+    ) -> bool:
+        """Return whether a non-expired lease belongs to another worker."""
+        now = time.time()
+        with self._lock:
+            row = self.connection.execute(
+                """
+                SELECT worker_id, lease_until
+                FROM task_leases
+                WHERE task_id = ?
+                """,
+                (task_id,),
+            ).fetchone()
+
+        return bool(
+            row is not None
+            and row[0] != worker_id
+            and float(row[1]) > now
+        )
+
+    def purge_expired_leases(self) -> int:
+        """Delete expired task leases."""
+        now = time.time()
+        with self._lock:
+            cursor = self.connection.execute(
+                "DELETE FROM task_leases WHERE lease_until <= ?",
+                (now,),
+            )
+            self.connection.commit()
+            return cursor.rowcount
 
     def load_tasks(self) -> dict[str, Task]:
         with self._lock:
