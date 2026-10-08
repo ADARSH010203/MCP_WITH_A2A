@@ -247,6 +247,12 @@ class A2AServer:
         return JSONResponse({"status": "ok"})
 
     async def _metrics_endpoint(self, request: Request) -> JSONResponse:
+        if not getattr(settings, "prometheus_metrics_enabled", True):
+            return JSONResponse(
+                {"status": "disabled"},
+                status_code=404,
+            )
+
         if settings.a2a_api_key:
             authorization = request.headers.get("Authorization", "")
             scheme, _, credentials = authorization.partition(" ")
