@@ -111,7 +111,7 @@ def test_event_bus_publish_failure_falls_back_to_local_subscriber():
             raise RuntimeError("redis offline")
 
     async def scenario():
-        manager = InMemoryTaskManager(store=SQLiteTaskStore(":memory:"))
+        manager = ConcreteTaskManager(store=SQLiteTaskStore(":memory:"))
         manager.event_bus = BrokenBus()
         queue = await manager.setup_sse_consumer("fallback-task")
 
