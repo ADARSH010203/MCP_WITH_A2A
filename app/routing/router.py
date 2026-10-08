@@ -1351,6 +1351,7 @@ class MultiAgent:
             result["cost"] = cost_budget.snapshot()
             result = self._record_cost_ledger(trace, result)
             trace.record(
+                "request_completed",
                 "coordinator",
                 str(result.get("status", "error")),
                 (time.perf_counter() - started) * 1000,
