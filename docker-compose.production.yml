@@ -20,6 +20,7 @@ services:
   a2a:
     environment:
       A2A_TASK_STORE_BACKEND: postgres
+      A2A_TASK_RECOVERY_WORKER_ENABLED: "true"
       A2A_TASK_DATABASE_URL: postgresql://${POSTGRES_USER:-a2a}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-a2a}
     depends_on:
       postgres:
