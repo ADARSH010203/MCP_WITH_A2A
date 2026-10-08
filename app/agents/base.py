@@ -13,6 +13,7 @@ from app.config.constants import SUPPORTED_CONTENT_TYPES
 from app.config.settings import settings
 from app.memory.context import get_memory_principal_id
 from app.memory.sqlite_memory import SQLiteConversationMemory
+from app.observability.cost import TokenUsage
 
 
 class ResponseFormat(BaseModel):
@@ -104,9 +105,16 @@ class BaseAgent:
 
     def invoke(self, query: str, session_id: str) -> dict[str, Any]:
         config = self._config(session_id)
+        previous_state = self.graph.get_state(config)
+        previous_messages = list(previous_state.values.get("messages", []))
         prepared_query = self._prepare_query(query, session_id, config)
         self.graph.invoke({"messages": [("user", prepared_query)]}, config)
+        state = self.graph.get_state(config)
+        new_messages = list(state.values.get("messages", []))[len(previous_messages):]
         response = self.get_agent_response(config)
+        usage = TokenUsage.from_messages(new_messages)
+        if usage is not None and usage.total_tokens:
+            response["usage"] = usage.to_dict()
         self._remember(session_id, query, response)
         return response
 
@@ -116,6 +124,8 @@ class BaseAgent:
         session_id: str,
     ) -> AsyncIterable[dict[str, Any]]:
         config = self._config(session_id)
+        previous_state = self.graph.get_state(config)
+        previous_messages = list(previous_state.values.get("messages", []))
 
         prepared_query = self._prepare_query(query, session_id, config)
         async for item in self.graph.astream(
@@ -134,7 +144,12 @@ class BaseAgent:
                     "content": self.processing_message,
                 }
 
+        state = self.graph.get_state(config)
+        new_messages = list(state.values.get("messages", []))[len(previous_messages):]
         response = self.get_agent_response(config)
+        usage = TokenUsage.from_messages(new_messages)
+        if usage is not None and usage.total_tokens:
+            response["usage"] = usage.to_dict()
         self._remember(session_id, query, response)
         yield response
 
