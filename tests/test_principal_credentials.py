@@ -195,3 +195,24 @@ def test_cost_endpoint_returns_only_authenticated_principal_usage(
     assert tenant_a.json()["daily"]["total_tokens"] == 15
     assert tenant_b.json()["daily"]["total_tokens"] == 150
     assert unknown.status_code == 401
+
+
+def test_metrics_endpoint_accepts_principal_key_and_rejects_unknown(monkeypatch):
+    monkeypatch.setattr(
+        server_module,
+        "settings",
+        _principal_auth_settings(prometheus_metrics_enabled=True),
+    )
+    client = TestClient(A2AServer().app)
+
+    accepted = client.get(
+        "/metrics",
+        headers={"Authorization": "Bearer tenant-a-client-secret"},
+    )
+    rejected = client.get(
+        "/metrics",
+        headers={"Authorization": "Bearer wrong-secret"},
+    )
+
+    assert accepted.status_code == 200
+    assert rejected.status_code == 401
