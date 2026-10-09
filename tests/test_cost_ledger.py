@@ -20,7 +20,7 @@ def test_sqlite_cost_ledger_records_idempotently_and_aggregates_by_principal(tmp
         daily_cost_limit_usd=1.0,
         monthly_cost_limit_usd=2.0,
     )
-    recorded_at = datetime(2026, 10, 8, 10, 0, tzinfo=timezone.utc)
+    recorded_at = datetime.now(timezone.utc).replace(microsecond=0)
 
     first = governance.record(
         task_key="task-1",
