@@ -1,6 +1,7 @@
 """Application configuration loaded from environment variables."""
 
 import os
+import re
 from dataclasses import dataclass, field
 
 from dotenv import load_dotenv
@@ -118,6 +119,7 @@ class Settings:
     a2a_cors_origins: tuple[str, ...] = field(default_factory=tuple, init=False)
     a2a_specialist_urls: dict[str, str] = field(default_factory=dict, init=False)
     a2a_specialist_api_keys: dict[str, str] = field(default_factory=dict, init=False)
+    a2a_principal_api_keys: dict[str, str] = field(default_factory=dict, init=False)
     a2a_remote_connect_timeout_seconds: float = _env_float(
         "A2A_REMOTE_CONNECT_TIMEOUT_SECONDS",
         10.0,
@@ -457,6 +459,64 @@ def _load_specialist_api_keys() -> dict[str, str]:
     return result
 
 
+def _load_principal_api_keys() -> dict[str, str]:
+    """Load tenant/principal credentials without logging secret material.
+
+    Format: principal_id=api_key;another_principal=another_api_key
+    """
+    raw = os.getenv("A2A_PRINCIPAL_API_KEYS", "")
+    if not raw.strip():
+        return {}
+
+    global_key = os.getenv("A2A_API_KEY", "").strip()
+    principal_pattern = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+    result: dict[str, str] = {}
+    seen_keys: set[str] = set()
+
+    for entry in raw.split(";"):
+        item = entry.strip()
+        if not item:
+            continue
+        if "=" not in item:
+            raise ValueError(
+                "A2A_PRINCIPAL_API_KEYS entries must use principal_id=api_key format"
+            )
+
+        principal_id, api_key = (
+            part.strip() for part in item.split("=", 1)
+        )
+        if not principal_pattern.fullmatch(principal_id):
+            raise ValueError(
+                "A2A_PRINCIPAL_API_KEYS contains an invalid principal identifier"
+            )
+        if not api_key:
+            raise ValueError(
+                "A2A_PRINCIPAL_API_KEYS entries must contain a non-empty API key"
+            )
+        if principal_id in result:
+            raise ValueError(
+                f"A2A_PRINCIPAL_API_KEYS contains duplicate principal: {principal_id}"
+            )
+        if api_key in seen_keys:
+            raise ValueError(
+                "A2A_PRINCIPAL_API_KEYS must not reuse a credential for multiple principals"
+            )
+        if global_key and api_key == global_key:
+            raise ValueError(
+                "A2A_PRINCIPAL_API_KEYS credentials must differ from A2A_API_KEY"
+            )
+
+        result[principal_id] = api_key
+        seen_keys.add(api_key)
+
+        if len(result) > 100:
+            raise ValueError(
+                "A2A_PRINCIPAL_API_KEYS supports at most 100 principals"
+            )
+
+    return result
+
+
 def _load_allowed_agents() -> tuple[str, ...]:
     raw = os.getenv("A2A_ALLOWED_AGENTS", "")
     return tuple(item.strip() for item in raw.split(",") if item.strip())
@@ -471,5 +531,6 @@ settings = Settings()
 object.__setattr__(settings, "mcp_allowed_tools", _load_mcp_allowed_tools())
 object.__setattr__(settings, "a2a_specialist_urls", _load_specialist_urls())
 object.__setattr__(settings, "a2a_specialist_api_keys", _load_specialist_api_keys())
+object.__setattr__(settings, "a2a_principal_api_keys", _load_principal_api_keys())
 object.__setattr__(settings, "a2a_allowed_agents", _load_allowed_agents())
 object.__setattr__(settings, "a2a_cors_origins", _load_cors_origins())
