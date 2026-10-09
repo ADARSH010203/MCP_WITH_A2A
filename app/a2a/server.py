@@ -260,24 +260,20 @@ class A2AServer:
                 status_code=404,
             )
 
-        configured_api_key = getattr(settings, "a2a_api_key", "")
-        if not configured_api_key:
+        if not self._authentication_configured():
             return JSONResponse(
                 {
                     "status": "unavailable",
-                    "detail": "Cost reporting requires A2A_API_KEY.",
+                    "detail": (
+                        "Cost reporting requires A2A_API_KEY or "
+                        "A2A_PRINCIPAL_API_KEYS."
+                    ),
                 },
                 status_code=503,
             )
 
-        authorization = request.headers.get("Authorization", "")
-        scheme, _, credentials = authorization.partition(" ")
-        presented = (
-            credentials.strip()
-            if scheme.casefold() == "bearer"
-            else ""
-        )
-        if not secrets.compare_digest(presented, configured_api_key):
+        principal_id = self._principal_id_from_request(request)
+        if principal_id is None:
             return JSONResponse(
                 JSONRPCResponse(
                     id=None,
@@ -312,7 +308,6 @@ class A2AServer:
                     0.0,
                 ),
             )
-            principal_id = self._principal_id_from_request(request)
             return JSONResponse(governance.report(principal_id))
         except CostLedgerError as exc:
             return JSONResponse(
@@ -330,15 +325,9 @@ class A2AServer:
                 status_code=404,
             )
 
-        if settings.a2a_api_key:
-            authorization = request.headers.get("Authorization", "")
-            scheme, _, credentials = authorization.partition(" ")
-            presented = (
-                credentials.strip()
-                if scheme.casefold() == "bearer"
-                else ""
-            )
-            if not secrets.compare_digest(presented, settings.a2a_api_key):
+        if self._authentication_configured():
+            principal_id = self._principal_id_from_request(request)
+            if principal_id is None:
                 return JSONResponse(
                     JSONRPCResponse(
                         id=None,
