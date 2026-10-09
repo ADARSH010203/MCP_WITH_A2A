@@ -449,18 +449,17 @@ class A2AServer:
         self, request: Request
     ) -> JSONResponse | EventSourceResponse:
         try:
-            if settings.a2a_api_key:
-                authorization = request.headers.get("Authorization", "")
-                scheme, _, credentials = authorization.partition(" ")
-                presented = credentials.strip() if scheme.casefold() == "bearer" else ""
-                if not secrets.compare_digest(presented, settings.a2a_api_key):
-                    return JSONResponse(
-                        JSONRPCResponse(
-                            id=None,
-                            error=InvalidRequestError(message="Authentication required"),
-                        ).model_dump(exclude_none=True),
-                        status_code=401,
-                    )
+            principal_id = self._principal_id_from_request(request)
+            if principal_id is None:
+                return JSONResponse(
+                    JSONRPCResponse(
+                        id=None,
+                        error=InvalidRequestError(
+                            message="Authentication required"
+                        ),
+                    ).model_dump(exclude_none=True),
+                    status_code=401,
+                )
 
             if await self._is_rate_limited(request):
                 return JSONResponse(
@@ -495,7 +494,6 @@ class A2AServer:
             if self.task_manager is None:
                 raise RuntimeError("Task manager is not configured")
 
-            principal_id = self._principal_id_from_request(request)
             handlers = {
                 SendTaskRequest: self.task_manager.on_send_task,
                 SendTaskStreamingRequest: self.task_manager.on_send_task_subscribe,
@@ -524,15 +522,40 @@ class A2AServer:
             return self._handle_exception(exc)
 
     @staticmethod
-    def _principal_id_from_request(request: Request) -> str:
-        """Derive an opaque principal from the authenticated caller identity."""
+    def _authentication_configured() -> bool:
+        return bool(getattr(settings, "a2a_api_key", "")) or bool(
+            getattr(settings, "a2a_principal_api_keys", {})
+        )
+
+    @staticmethod
+    def _principal_id_from_request(request: Request) -> str | None:
+        """Authenticate the bearer credential and derive its stable principal."""
         authorization = request.headers.get("Authorization", "")
         scheme, _, credentials = authorization.partition(" ")
         presented = credentials.strip() if scheme.casefold() == "bearer" else ""
-        if presented:
-            return "bearer:" + hashlib.sha256(
-                presented.encode("utf-8")
-            ).hexdigest()
+
+        principal_keys = getattr(settings, "a2a_principal_api_keys", {}) or {}
+        matched_principal: str | None = None
+        for principal_id, api_key in sorted(principal_keys.items()):
+            if secrets.compare_digest(presented, api_key):
+                matched_principal = principal_id
+
+        if matched_principal is not None:
+            return "client:" + matched_principal
+
+        configured_api_key = getattr(settings, "a2a_api_key", "")
+        if configured_api_key:
+            if secrets.compare_digest(presented, configured_api_key):
+                return "bearer:" + hashlib.sha256(
+                    presented.encode("utf-8")
+                ).hexdigest()
+            return None
+
+        if principal_keys:
+            return None
+
+        # Unauthenticated local/demo deployments share one anonymous budget
+        # principal rather than allowing arbitrary bearer strings to mint IDs.
         return "anonymous"
 
     def _handle_exception(self, exc: Exception) -> JSONResponse:
