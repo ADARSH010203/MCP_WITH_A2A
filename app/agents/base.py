@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from app.config.constants import SUPPORTED_CONTENT_TYPES
 from app.config.settings import settings
 from app.memory.context import get_memory_principal_id
+from app.memory.scope import MemoryScope
 from app.memory.sqlite_memory import SQLiteConversationMemory
 from app.observability.cost import TokenUsage
 
@@ -101,7 +102,14 @@ class BaseAgent:
         )
 
     def _config(self, session_id: str) -> dict[str, dict[str, str]]:
-        return {"configurable": {"thread_id": session_id}}
+        """Build an opaque, principal-scoped LangGraph checkpoint thread ID."""
+        scope = MemoryScope(
+            principal_id=get_memory_principal_id(),
+            session_id=session_id,
+            agent_type=self.memory_agent_type,
+        )
+        thread_id = scope.key(self.memory_store.namespace_secret)
+        return {"configurable": {"thread_id": thread_id}}
 
     def invoke(self, query: str, session_id: str) -> dict[str, Any]:
         config = self._config(session_id)
