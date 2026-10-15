@@ -226,3 +226,33 @@ def test_base_agent_reads_request_scoped_principal(tmp_path):
         assert "tenant B context" in agent._memory_context("s")
         assert "tenant A context" not in agent._memory_context("s")
     agent.memory_store.close()
+
+def test_base_agent_checkpointer_isolated_by_principal_and_session(tmp_path):
+    from app.agents.base import BaseAgent
+
+    agent = BaseAgent.__new__(BaseAgent)
+    agent.memory_agent_type = "code"
+    agent.memory_store = SQLiteConversationMemory(
+        str(tmp_path / "memory.db"),
+        namespace_secret="test-secret",
+    )
+
+    with use_memory_principal("tenant-a"):
+        tenant_a_config = agent._config("shared-session")
+        tenant_a_again = agent._config("shared-session")
+        other_session_config = agent._config("another-session")
+
+    with use_memory_principal("tenant-b"):
+        tenant_b_config = agent._config("shared-session")
+
+    tenant_a_thread = tenant_a_config["configurable"]["thread_id"]
+    tenant_b_thread = tenant_b_config["configurable"]["thread_id"]
+
+    assert tenant_a_thread == tenant_a_again["configurable"]["thread_id"]
+    assert tenant_a_thread != tenant_b_thread
+    assert tenant_a_thread != other_session_config["configurable"]["thread_id"]
+    assert tenant_a_thread != "shared-session"
+    assert tenant_b_thread != "shared-session"
+
+    agent.memory_store.close()
+
