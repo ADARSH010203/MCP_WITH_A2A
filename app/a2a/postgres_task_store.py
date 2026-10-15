@@ -31,9 +31,13 @@ class PostgresTaskStore:
                 """
                 CREATE TABLE IF NOT EXISTS tasks (
                     id TEXT PRIMARY KEY,
-                    payload TEXT NOT NULL
+                    payload TEXT NOT NULL,
+                    owner_principal_id TEXT
                 )
                 """
+            )
+            cursor.execute(
+                "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS owner_principal_id TEXT"
             )
             cursor.execute(
                 """
@@ -91,17 +95,34 @@ class PostgresTaskStore:
             return None
         return Task.model_validate_json(row[0])
 
-    def create_task_if_absent(self, task: Task) -> tuple[Task, bool]:
+    def get_task_owner(self, task_id: str) -> str | None:
+        """Return the trusted principal recorded when a task was created."""
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT owner_principal_id FROM tasks WHERE id = %s",
+                (task_id,),
+            )
+            row = cursor.fetchone()
+        return row[0] if row is not None else None
+
+    def create_task_if_absent(
+        self,
+        task: Task,
+        owner_principal_id: str = "anonymous",
+    ) -> tuple[Task, bool]:
+        if not isinstance(owner_principal_id, str) or not owner_principal_id.strip():
+            raise ValueError("owner_principal_id must be a non-empty string")
+
         payload = task.model_dump_json()
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
-                INSERT INTO tasks (id, payload)
-                VALUES (%s, %s)
+                INSERT INTO tasks (id, payload, owner_principal_id)
+                VALUES (%s, %s, %s)
                 ON CONFLICT (id) DO NOTHING
                 RETURNING id, payload
                 """,
-                (task.id, payload),
+                (task.id, payload, owner_principal_id),
             )
             row = cursor.fetchone()
             if row is not None:
@@ -223,7 +244,8 @@ class PostgresTaskStore:
                 FROM tasks AS t
                 LEFT JOIN task_leases AS l
                   ON l.task_id = t.id
-                WHERE (l.task_id IS NULL OR l.lease_until <= %s)
+                WHERE t.owner_principal_id IS NOT NULL
+                  AND (l.task_id IS NULL OR l.lease_until <= %s)
                 ORDER BY (t.payload::jsonb->'status'->>'timestamp')::timestamptz
                 LIMIT %s
                 """,

@@ -257,3 +257,31 @@ def test_base_agent_checkpointer_isolated_by_principal_and_session(tmp_path):
 
     agent.memory_store.close()
 
+
+def test_sqlite_task_store_quarantines_legacy_tasks_without_owner(tmp_path):
+    import sqlite3
+
+    database_path = tmp_path / "legacy-tasks.db"
+    legacy_task = Task(
+        id="legacy-task",
+        sessionId="legacy-session",
+        status=TaskStatus(state=TaskState.SUBMITTED),
+        history=[],
+    )
+
+    connection = sqlite3.connect(database_path)
+    connection.execute(
+        "CREATE TABLE tasks (id TEXT PRIMARY KEY, payload TEXT NOT NULL)"
+    )
+    connection.execute(
+        "INSERT INTO tasks (id, payload) VALUES (?, ?)",
+        (legacy_task.id, legacy_task.model_dump_json()),
+    )
+    connection.commit()
+    connection.close()
+
+    store = SQLiteTaskStore(str(database_path))
+    assert store.load_task("legacy-task") is not None
+    assert store.get_task_owner("legacy-task") is None
+    assert store.list_recoverable_tasks(10) == []
+    store.close()

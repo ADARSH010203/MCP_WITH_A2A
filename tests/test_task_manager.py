@@ -2,6 +2,8 @@ import asyncio
 
 from app.a2a.models import (
     CancelTaskRequest,
+    GetTaskRequest,
+    PushNotificationConfig,
     JSONRPCResponse,
     Message,
     SendTaskRequest,
@@ -12,6 +14,7 @@ from app.a2a.models import (
 )
 from app.a2a.task_manager import AgentTaskManager
 from app.a2a.task_store import SQLiteTaskStore
+from app.memory.context import use_memory_principal
 
 
 class FakeNotificationAuth:
@@ -434,5 +437,79 @@ def test_worker_takes_over_expired_lease(tmp_path):
 
         store_one.close()
         store_two.close()
+
+    asyncio.run(scenario())
+
+
+def test_task_access_is_isolated_by_principal(tmp_path):
+    async def scenario():
+        store = SQLiteTaskStore(str(tmp_path / "principal-tasks.db"))
+        agent = FakeAgent(
+            {
+                "status": "completed",
+                "is_task_complete": True,
+                "require_user_input": False,
+                "content": "tenant-owned result",
+            }
+        )
+        manager = AgentTaskManager(
+            agent,
+            FakeNotificationAuth(),
+            store=store,
+        )
+        request = make_request("shared-task")
+
+        with use_memory_principal("client:tenant-a"):
+            created = await manager.on_send_task(request)
+            assert created.result is not None
+            assert created.result.status.state == TaskState.COMPLETED
+            assert store.get_task_owner("shared-task") == "client:tenant-a"
+
+            visible = await manager.on_get_task(
+                GetTaskRequest(id="tenant-a-get", params={"id": "shared-task"})
+            )
+            assert visible.result is not None
+            await manager.set_push_notification_info(
+                "shared-task",
+                PushNotificationConfig(url="https://callback.example.test/notify"),
+            )
+
+        with use_memory_principal("client:tenant-b"):
+            hidden = await manager.on_get_task(
+                GetTaskRequest(id="tenant-b-get", params={"id": "shared-task"})
+            )
+            assert hidden.result is None
+            assert hidden.error is not None
+            assert hidden.error.code == -32001
+
+            duplicate = await manager.on_send_task(request)
+            assert duplicate.result is None
+            assert duplicate.error is not None
+            assert duplicate.error.code == -32602
+
+            canceled = await manager.on_cancel_task(
+                CancelTaskRequest(id="tenant-b-cancel", params={"id": "shared-task"})
+            )
+            assert canceled.result is None
+            assert canceled.error is not None
+            assert canceled.error.code == -32001
+
+            callback_hidden = False
+            try:
+                await manager.get_push_notification_info("shared-task")
+            except ValueError:
+                callback_hidden = True
+            assert callback_hidden
+
+        with use_memory_principal("client:tenant-a"):
+            restored = await manager.on_get_task(
+                GetTaskRequest(id="tenant-a-get-again", params={"id": "shared-task"})
+            )
+            assert restored.result is not None
+            callback = await manager.get_push_notification_info("shared-task")
+            assert callback.url == "https://callback.example.test/notify"
+
+        assert agent.invoke_calls == 1
+        store.close()
 
     asyncio.run(scenario())

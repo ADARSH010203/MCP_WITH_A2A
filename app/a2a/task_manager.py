@@ -35,6 +35,7 @@ from app.a2a.push_notification_auth import PushNotificationSenderAuth
 from app.a2a.task_store import SQLiteTaskStore
 from app.config.constants import SUPPORTED_CONTENT_TYPES
 from app.config.settings import get_worker_id, settings
+from app.memory.context import use_memory_principal
 
 
 class AgentTaskManager(InMemoryTaskManager):
@@ -174,6 +175,13 @@ class AgentTaskManager(InMemoryTaskManager):
             if first_message is None:
                 continue
 
+            owner_principal_id = await asyncio.to_thread(
+                self.store.get_task_owner,
+                task.id,
+            )
+            if owner_principal_id is None:
+                continue
+
             request = SendTaskRequest(
                 id=f"recovery:{self.worker_id}:{task.id}",
                 params=TaskSendParams(
@@ -182,7 +190,8 @@ class AgentTaskManager(InMemoryTaskManager):
                     message=first_message,
                 ),
             )
-            response = await self.on_send_task(request)
+            with use_memory_principal(owner_principal_id):
+                response = await self.on_send_task(request)
             if response.result is not None:
                 recovered += 1
         return recovered

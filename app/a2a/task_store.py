@@ -30,10 +30,26 @@ class SQLiteTaskStore:
                 """
                 CREATE TABLE IF NOT EXISTS tasks (
                     id TEXT PRIMARY KEY,
-                    payload TEXT NOT NULL
+                    payload TEXT NOT NULL,
+                    owner_principal_id TEXT
                 )
                 """
             )
+            task_columns = {
+                row[1]
+                for row in self.connection.execute(
+                    "PRAGMA table_info(tasks)"
+                ).fetchall()
+            }
+            if "owner_principal_id" not in task_columns:
+                try:
+                    self.connection.execute(
+                        "ALTER TABLE tasks ADD COLUMN owner_principal_id TEXT"
+                    )
+                except sqlite3.OperationalError as exc:
+                    # Another process may have applied the same migration concurrently.
+                    if "duplicate column name" not in str(exc).casefold():
+                        raise
             self.connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS push_notification_configs (
@@ -73,6 +89,15 @@ class SQLiteTaskStore:
         if row is None:
             return None
         return Task.model_validate_json(row[0])
+
+    def get_task_owner(self, task_id: str) -> str | None:
+        """Return the trusted principal recorded when a task was created."""
+        with self._lock:
+            row = self.connection.execute(
+                "SELECT owner_principal_id FROM tasks WHERE id = ?",
+                (task_id,),
+            ).fetchone()
+        return row[0] if row is not None else None
 
     def claim_task(
         self,
@@ -196,7 +221,10 @@ class SQLiteTaskStore:
         now = time.time()
         with self._lock:
             rows = self.connection.execute(
-                "SELECT id, payload FROM tasks"
+                """
+                SELECT id, payload FROM tasks
+                WHERE owner_principal_id IS NOT NULL
+                """
             ).fetchall()
             leases = {
                 task_id: float(lease_until)
@@ -255,16 +283,23 @@ class SQLiteTaskStore:
             for task_id, payload in rows
         }
 
-    def create_task_if_absent(self, task: Task) -> tuple[Task, bool]:
-        """Atomically create a task, returning the durable winner on races."""
+    def create_task_if_absent(
+        self,
+        task: Task,
+        owner_principal_id: str = "anonymous",
+    ) -> tuple[Task, bool]:
+        """Atomically create a task and persist its owning principal."""
+        if not isinstance(owner_principal_id, str) or not owner_principal_id.strip():
+            raise ValueError("owner_principal_id must be a non-empty string")
+
         payload = task.model_dump_json()
         with self._lock:
             cursor = self.connection.execute(
                 """
-                INSERT OR IGNORE INTO tasks (id, payload)
-                VALUES (?, ?)
+                INSERT OR IGNORE INTO tasks (id, payload, owner_principal_id)
+                VALUES (?, ?, ?)
                 """,
-                (task.id, payload),
+                (task.id, payload, owner_principal_id),
             )
             self.connection.commit()
 
