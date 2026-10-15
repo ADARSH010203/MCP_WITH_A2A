@@ -227,6 +227,7 @@ def test_base_agent_reads_request_scoped_principal(tmp_path):
         assert "tenant A context" not in agent._memory_context("s")
     agent.memory_store.close()
 
+
 def test_base_agent_checkpointer_isolated_by_principal_and_session(tmp_path):
     from app.agents.base import BaseAgent
 
