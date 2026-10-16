@@ -315,6 +315,48 @@ class SQLiteTaskStore:
             raise RuntimeError(f"Task {task.id} disappeared after creation race")
         return Task.model_validate_json(row[0]), False
 
+    def save_task_if_lease_owner(self, task: Task, lease_owner_id: str) -> bool:
+        """Persist task state only while this execution owns a live lease."""
+        if not lease_owner_id:
+            raise ValueError("lease_owner_id is required")
+
+        payload = task.model_dump_json()
+        with self._lock:
+            try:
+                # Acquire the SQLite writer lock before checking the lease so a
+                # concurrent takeover cannot race the ownership check and update.
+                self.connection.execute("BEGIN IMMEDIATE")
+                lease = self.connection.execute(
+                    """
+                    SELECT worker_id, lease_until
+                    FROM task_leases
+                    WHERE task_id = ?
+                    """,
+                    (task.id,),
+                ).fetchone()
+                now = time.time()
+                if (
+                    lease is None
+                    or lease[0] != lease_owner_id
+                    or float(lease[1]) <= now
+                ):
+                    self.connection.rollback()
+                    return False
+
+                cursor = self.connection.execute(
+                    "UPDATE tasks SET payload = ? WHERE id = ?",
+                    (payload, task.id),
+                )
+                if cursor.rowcount != 1:
+                    self.connection.rollback()
+                    return False
+
+                self.connection.commit()
+                return True
+            except Exception:
+                self.connection.rollback()
+                raise
+
     def save_task(self, task: Task) -> None:
         payload = task.model_dump_json()
         with self._lock:

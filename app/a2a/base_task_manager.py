@@ -45,6 +45,10 @@ from app.memory.context import get_memory_principal_id
 logger = logging.getLogger(__name__)
 
 
+class TaskLeaseLostError(RuntimeError):
+    """Raised when a worker tries to persist after losing its task lease."""
+
+
 class TaskManager(ABC):
     @abstractmethod
     async def on_get_task(self, request: GetTaskRequest) -> GetTaskResponse:
@@ -315,7 +319,13 @@ class InMemoryTaskManager(TaskManager):
                     task.artifacts = []
                 task.artifacts.extend(artifacts)
 
-            self.store.save_task(task)
+            lease_owner_id = getattr(self, "lease_owner_ids", {}).get(task_id)
+            if lease_owner_id is None:
+                self.store.save_task(task)
+            elif not self.store.save_task_if_lease_owner(task, lease_owner_id):
+                raise TaskLeaseLostError(
+                    f"Worker lost the execution lease for task {task_id}"
+                )
             return task
 
     def append_task_history(self, task: Task, historyLength: int | None):

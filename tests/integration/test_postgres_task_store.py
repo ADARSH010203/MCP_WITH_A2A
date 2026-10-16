@@ -57,6 +57,10 @@ def test_postgres_store_persists_task_and_lease(postgres_store):
     assert restored.status.state == TaskState.COMPLETED
     assert postgres_store.get_task_owner(task.id) == "client:tenant-a"
 
+    stale = task.model_copy(update={"status": TaskStatus(state=TaskState.COMPLETED)})
+    assert postgres_store.save_task_if_lease_owner(stale, "worker-a") is False
+    assert postgres_store.save_task_if_lease_owner(stale, "worker-b") is True
+
 
 def test_postgres_store_creation_is_idempotent_under_repeat(postgres_store):
     first, first_created = postgres_store.create_task_if_absent(

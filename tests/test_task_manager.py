@@ -3,6 +3,8 @@ import asyncio
 from app.a2a.models import (
     CancelTaskRequest,
     GetTaskRequest,
+    Task,
+    TaskStatus,
     PushNotificationConfig,
     JSONRPCResponse,
     Message,
@@ -510,6 +512,79 @@ def test_task_access_is_isolated_by_principal(tmp_path):
             assert callback.url == "https://callback.example.test/notify"
 
         assert agent.invoke_calls == 1
+        store.close()
+
+    asyncio.run(scenario())
+
+
+def test_stale_worker_cannot_overwrite_task_after_lease_takeover(tmp_path):
+    async def scenario():
+        store = SQLiteTaskStore(str(tmp_path / "fenced-task.db"))
+        task = Task(
+            id="fenced-task",
+            sessionId="session-1",
+            status=TaskStatus(state=TaskState.SUBMITTED),
+            history=[],
+        )
+        store.create_task_if_absent(
+            task,
+            owner_principal_id="client:tenant-a",
+        )
+        assert store.claim_task(task.id, "old-lease-owner", 0.02) is True
+
+        await asyncio.sleep(0.04)
+        assert store.claim_task(task.id, "new-lease-owner", 60) is True
+
+        stale_result = task.model_copy(
+            update={"status": TaskStatus(state=TaskState.COMPLETED)}
+        )
+        assert store.save_task_if_lease_owner(stale_result, "old-lease-owner") is False
+        current = store.load_task(task.id)
+        assert current is not None
+        assert current.status.state == TaskState.SUBMITTED
+
+        current_result = task.model_copy(
+            update={"status": TaskStatus(state=TaskState.WORKING)}
+        )
+        assert store.save_task_if_lease_owner(current_result, "new-lease-owner") is True
+        current = store.load_task(task.id)
+        assert current is not None
+        assert current.status.state == TaskState.WORKING
+        store.close()
+
+    asyncio.run(scenario())
+
+
+def test_lease_heartbeat_cancels_execution_after_lease_loss():
+    async def scenario():
+        store = SQLiteTaskStore(":memory:")
+        manager = AgentTaskManager(
+            FakeAgent({"status": "completed", "is_task_complete": True, "content": "done"}),
+            FakeNotificationAuth(),
+            store=store,
+        )
+        manager.task_lease_seconds = 3.0
+        assert await manager._claim_task("heartbeat-task") is True
+        lease_owner_id = manager.lease_owner_ids["heartbeat-task"]
+
+        assert store.release_task("heartbeat-task", lease_owner_id) is True
+        assert store.claim_task("heartbeat-task", "replacement-owner", 60) is True
+
+        execution_task = asyncio.create_task(asyncio.Event().wait())
+        manager.lease_execution_tasks["heartbeat-task"] = execution_task
+        heartbeat = asyncio.create_task(manager._lease_heartbeat("heartbeat-task"))
+
+        try:
+            await execution_task
+        except asyncio.CancelledError:
+            pass
+        else:
+            raise AssertionError("Worker execution was not canceled after lease loss")
+
+        await heartbeat
+        manager.lease_execution_tasks.pop("heartbeat-task", None)
+        manager.lease_owner_ids.pop("heartbeat-task", None)
+        store.release_task("heartbeat-task", "replacement-owner")
         store.close()
 
     asyncio.run(scenario())

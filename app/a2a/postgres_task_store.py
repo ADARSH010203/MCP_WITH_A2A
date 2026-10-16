@@ -144,6 +144,38 @@ class PostgresTaskStore:
         self.connection.commit()
         return Task.model_validate_json(existing[0]), False
 
+    def save_task_if_lease_owner(self, task: Task, lease_owner_id: str) -> bool:
+        """Persist task state only while this execution owns a live lease."""
+        if not lease_owner_id:
+            raise ValueError("lease_owner_id is required")
+
+        with self.connection.transaction():
+            with self.connection.cursor() as cursor:
+                # Lock the lease row while checking and writing, so a competing
+                # worker cannot take over between the check and task update.
+                cursor.execute(
+                    """
+                    SELECT worker_id, lease_until
+                    FROM task_leases
+                    WHERE task_id = %s
+                    FOR UPDATE
+                    """,
+                    (task.id,),
+                )
+                lease = cursor.fetchone()
+                if (
+                    lease is None
+                    or lease[0] != lease_owner_id
+                    or float(lease[1]) <= time.time()
+                ):
+                    return False
+
+                cursor.execute(
+                    "UPDATE tasks SET payload = %s WHERE id = %s",
+                    (task.model_dump_json(), task.id),
+                )
+                return cursor.rowcount == 1
+
     def save_task(self, task: Task) -> None:
         with self.connection.cursor() as cursor:
             cursor.execute(
