@@ -1501,6 +1501,7 @@ class MultiAgent:
         reservation_key = self._admit_budget(query, plan, trace)
         ledger_recorded = False
         interruption_status = "interrupted"
+        work_tasks: list[asyncio.Task[Any]] = []
         try:
 
             if (
@@ -1629,7 +1630,13 @@ class MultiAgent:
                         )
                         for step in independent_steps
                     ]
-                    group_outcomes = list(await asyncio.gather(*tasks))
+                    # Shield started sync calls from cancellation of the async stream.
+                    work_tasks.extend(tasks)
+                    group_outcomes = list(
+                        await asyncio.gather(
+                            *(asyncio.shield(task) for task in tasks)
+                        )
+                    )
                     stream_outcomes.extend(group_outcomes)
 
                     for outcome in group_outcomes:
@@ -1668,16 +1675,20 @@ class MultiAgent:
                             "upstream": [item["agent"] for item in upstream]
                         },
                     )
-                    outcome = await asyncio.to_thread(
-                        self._run_specialist_safely,
-                        step.agent,
-                        query,
-                        session_id,
-                        upstream,
-                        budget,
-                        trace,
-                        cost_budget,
+                    specialist_task = asyncio.create_task(
+                        asyncio.to_thread(
+                            self._run_specialist_safely,
+                            step.agent,
+                            query,
+                            session_id,
+                            upstream,
+                            budget,
+                            trace,
+                            cost_budget,
+                        )
                     )
+                    work_tasks.append(specialist_task)
+                    outcome = await asyncio.shield(specialist_task)
                     stream_outcomes.append(outcome)
                     trace.record(
                         "handoff",
@@ -1717,14 +1728,18 @@ class MultiAgent:
                 "cost": cost_budget.snapshot(),
             }
 
-            synthesis = await asyncio.to_thread(
-                self._synthesize_with_timeout,
-                query,
-                stream_outcomes,
-                budget,
-                trace,
-                cost_budget,
+            synthesis_task = asyncio.create_task(
+                asyncio.to_thread(
+                    self._synthesize_with_timeout,
+                    query,
+                    stream_outcomes,
+                    budget,
+                    trace,
+                    cost_budget,
+                )
             )
+            work_tasks.append(synthesis_task)
+            synthesis = await asyncio.shield(synthesis_task)
 
             if synthesis.get("status") in {"budget_exceeded", "timeout", "error"}:
                 successful = [
@@ -1813,6 +1828,11 @@ class MultiAgent:
             raise
         finally:
             try:
+                if interruption_status in {"cancelled", "error"} and work_tasks:
+                    # asyncio cannot stop an already running provider thread.
+                    # Wait for wrappers to settle before snapshotting known usage.
+                    await asyncio.gather(*work_tasks, return_exceptions=True)
+
                 if not ledger_recorded and self.cost_governance is not None:
                     snapshot = cost_budget.snapshot()
                     has_observed_usage = (
