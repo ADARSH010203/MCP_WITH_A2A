@@ -7,7 +7,7 @@ from collections.abc import AsyncIterable
 from typing import Any
 
 from app.a2a import utils
-from app.a2a.base_task_manager import InMemoryTaskManager
+from app.a2a.base_task_manager import InMemoryTaskManager, TaskLeaseLostError
 from app.a2a.models import (
     Artifact,
     CancelTaskResponse,
@@ -35,6 +35,7 @@ from app.a2a.push_notification_auth import PushNotificationSenderAuth
 from app.a2a.task_store import SQLiteTaskStore
 from app.config.constants import SUPPORTED_CONTENT_TYPES
 from app.config.settings import get_worker_id, settings
+from app.memory.context import use_memory_principal
 
 
 class AgentTaskManager(InMemoryTaskManager):
@@ -49,6 +50,8 @@ class AgentTaskManager(InMemoryTaskManager):
         self.notification_sender_auth = notification_sender_auth
         self.streaming_tasks: dict[str, asyncio.Task[None]] = {}
         self.active_task_ids: set[str] = set()
+        self.lease_owner_ids: dict[str, str] = {}
+        self.lease_execution_tasks: dict[str, asyncio.Task] = {}
         self.worker_id = get_worker_id()
         self.task_lease_seconds = getattr(
             settings,
@@ -174,6 +177,13 @@ class AgentTaskManager(InMemoryTaskManager):
             if first_message is None:
                 continue
 
+            owner_principal_id = await asyncio.to_thread(
+                self.store.get_task_owner,
+                task.id,
+            )
+            if owner_principal_id is None:
+                continue
+
             request = SendTaskRequest(
                 id=f"recovery:{self.worker_id}:{task.id}",
                 params=TaskSendParams(
@@ -182,7 +192,8 @@ class AgentTaskManager(InMemoryTaskManager):
                     message=first_message,
                 ),
             )
-            response = await self.on_send_task(request)
+            with use_memory_principal(owner_principal_id):
+                response = await self.on_send_task(request)
             if response.result is not None:
                 recovered += 1
         return recovered
@@ -209,28 +220,44 @@ class AgentTaskManager(InMemoryTaskManager):
                 continue
 
     async def _claim_task(self, task_id: str) -> bool:
-        return await asyncio.to_thread(
+        # A unique owner token fences concurrent executions even when they run
+        # under the same process-level worker ID.
+        lease_owner_id = f"{self.worker_id}:{uuid4().hex}"
+        claimed = await asyncio.to_thread(
             self.store.claim_task,
             task_id,
-            self.worker_id,
+            lease_owner_id,
             self.task_lease_seconds,
         )
+        if claimed:
+            self.lease_owner_ids[task_id] = lease_owner_id
+        return claimed
 
     async def _release_task(self, task_id: str) -> None:
-        await asyncio.to_thread(
-            self.store.release_task,
-            task_id,
-            self.worker_id,
-        )
+        lease_owner_id = self.lease_owner_ids.get(task_id)
+        if lease_owner_id is None:
+            return
+        try:
+            await asyncio.to_thread(
+                self.store.release_task,
+                task_id,
+                lease_owner_id,
+            )
+        finally:
+            self.lease_owner_ids.pop(task_id, None)
 
     async def _lease_heartbeat(self, task_id: str) -> None:
+        lease_owner_id = self.lease_owner_ids.get(task_id)
+        if lease_owner_id is None:
+            return
+
         interval = max(1.0, self.task_lease_seconds / 3)
         while True:
             await asyncio.sleep(interval)
             renewed = await asyncio.to_thread(
                 self.store.renew_task_lease,
                 task_id,
-                self.worker_id,
+                lease_owner_id,
                 self.task_lease_seconds,
             )
             if not renewed:
@@ -239,6 +266,13 @@ class AgentTaskManager(InMemoryTaskManager):
                     task_id,
                     self.worker_id,
                 )
+                execution_task = self.lease_execution_tasks.get(task_id)
+                if (
+                    execution_task is not None
+                    and execution_task is not asyncio.current_task()
+                    and not execution_task.done()
+                ):
+                    execution_task.cancel()
                 return
 
     async def _start_streaming_task(
@@ -272,6 +306,7 @@ class AgentTaskManager(InMemoryTaskManager):
             )
             return
 
+        self.lease_execution_tasks[task_send_params.id] = asyncio.current_task()
         heartbeat = asyncio.create_task(
             self._lease_heartbeat(task_send_params.id)
         )
@@ -366,6 +401,12 @@ class AgentTaskManager(InMemoryTaskManager):
                             metadata=metadata,
                         ),
                     )
+        except TaskLeaseLostError:
+            logging.getLogger(__name__).warning(
+                "Stopping stale streaming worker for task %s",
+                task_send_params.id,
+            )
+            return
         except Exception:
             logger = logging.getLogger(__name__)
             logger.exception(
@@ -391,6 +432,12 @@ class AgentTaskManager(InMemoryTaskManager):
                     [],
                 )
                 await self.send_task_notification(failure_task)
+            except TaskLeaseLostError:
+                logger.warning(
+                    "Cannot write a failure status after losing task lease %s",
+                    task_send_params.id,
+                )
+                return
             except Exception:
                 logger.exception(
                     "Failed to store streaming failure for task %s",
@@ -407,6 +454,7 @@ class AgentTaskManager(InMemoryTaskManager):
             )
         finally:
             self.active_task_ids.discard(task_send_params.id)
+            self.lease_execution_tasks.pop(task_send_params.id, None)
             heartbeat.cancel()
             await asyncio.gather(heartbeat, return_exceptions=True)
             await self._release_task(task_send_params.id)
@@ -526,6 +574,7 @@ class AgentTaskManager(InMemoryTaskManager):
                 ),
             )
 
+        self.lease_execution_tasks[request.params.id] = asyncio.current_task()
         heartbeat = asyncio.create_task(
             self._lease_heartbeat(request.params.id)
         )
@@ -548,6 +597,13 @@ class AgentTaskManager(InMemoryTaskManager):
                 )
 
             return await self._process_agent_response(request, agent_response)
+        except TaskLeaseLostError:
+            return SendTaskResponse(
+                id=request.id,
+                error=InternalError(
+                    message="Task execution lease was lost; retry the request.",
+                ),
+            )
         except Exception:
             logging.getLogger(__name__).exception(
                 "Agent invocation failed for task %s", request.params.id
@@ -564,11 +620,20 @@ class AgentTaskManager(InMemoryTaskManager):
                     ],
                 ),
             )
-            task = await self.update_store(request.params.id, failure_status, [])
+            try:
+                task = await self.update_store(request.params.id, failure_status, [])
+            except TaskLeaseLostError:
+                return SendTaskResponse(
+                    id=request.id,
+                    error=InternalError(
+                        message="Task execution lease was lost; retry the request.",
+                    ),
+                )
             await self.send_task_notification(task)
             return SendTaskResponse(id=request.id, result=task)
         finally:
             self.active_task_ids.discard(request.params.id)
+            self.lease_execution_tasks.pop(request.params.id, None)
             heartbeat.cancel()
             await asyncio.gather(heartbeat, return_exceptions=True)
             await self._release_task(request.params.id)

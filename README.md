@@ -327,6 +327,7 @@ The calculator parses Python's expression AST instead of calling `eval()`, accep
 - Push-notification callback URLs require HTTPS by default and private/loopback destinations are blocked.
 - Push notification JWTs are RSA-signed, include a request-body digest and unique token ID, and receivers reject reused tokens within the validity window.
 - A2A task state is persisted in SQLite by default or PostgreSQL for distributed deployments. Live SSE events can use an optional Redis event bus, while active worker execution remains lease-coordinated.
+- Each task is bound to its creating principal; task reads, ID reuse, state updates, cancellation, and push-notification settings are owner-checked. Legacy task rows without owner metadata remain quarantined from principal access and automatic recovery until explicitly migrated.
 - Duplicate task IDs are idempotent; reusing an ID for a different session or message is rejected.
 - Streaming tasks can be canceled while their worker is active.
 - Currency rates come from a daily reference-rate provider; they are not suitable for live trading or guaranteed settlement prices.

@@ -40,8 +40,13 @@ from app.a2a.store_protocol import TaskStore
 from app.a2a.task_store_factory import build_task_store
 from app.a2a.utils import new_not_implemented_error
 from app.config.settings import settings
+from app.memory.context import get_memory_principal_id
 
 logger = logging.getLogger(__name__)
+
+
+class TaskLeaseLostError(RuntimeError):
+    """Raised when a worker tries to persist after losing its task lease."""
 
 
 class TaskManager(ABC):
@@ -103,8 +108,11 @@ class InMemoryTaskManager(TaskManager):
         return self.store.ping()
 
     async def get_stored_task(self, task_id: str) -> Task | None:
-        """Read the latest task state from durable storage."""
+        """Read a task only when it belongs to the current trusted principal."""
         async with self.lock:
+            if self.store.get_task_owner(task_id) != get_memory_principal_id():
+                self.tasks.pop(task_id, None)
+                return None
             task = self.store.load_task(task_id)
             if task is None:
                 self.tasks.pop(task_id, None)
@@ -117,6 +125,8 @@ class InMemoryTaskManager(TaskManager):
         task_query_params: TaskQueryParams = request.params
 
         async with self.lock:
+            if self.store.get_task_owner(task_query_params.id) != get_memory_principal_id():
+                return GetTaskResponse(id=request.id, error=TaskNotFoundError())
             task = self.store.load_task(task_query_params.id)
             if task is not None:
                 self.tasks[task_query_params.id] = task
@@ -154,6 +164,8 @@ class InMemoryTaskManager(TaskManager):
         self, task_id: str, notification_config: PushNotificationConfig
     ):
         async with self.lock:
+            if self.store.get_task_owner(task_id) != get_memory_principal_id():
+                raise ValueError(f"Task not found for {task_id}")
             task = self.tasks.get(task_id)
             if task is None:
                 raise ValueError(f"Task not found for {task_id}")
@@ -165,8 +177,10 @@ class InMemoryTaskManager(TaskManager):
 
     async def get_push_notification_info(self, task_id: str) -> PushNotificationConfig:
         async with self.lock:
+            if self.store.get_task_owner(task_id) != get_memory_principal_id():
+                raise ValueError(f"Task not found for {task_id}")
             task = self.tasks.get(task_id)
-            if task is None:
+            if task is None or task_id not in self.push_notification_infos:
                 raise ValueError(f"Task not found for {task_id}")
 
             return self.push_notification_infos[task_id]
@@ -175,7 +189,10 @@ class InMemoryTaskManager(TaskManager):
 
     async def has_push_notification_info(self, task_id: str) -> bool:
         async with self.lock:
-            return task_id in self.push_notification_infos
+            return (
+                self.store.get_task_owner(task_id) == get_memory_principal_id()
+                and task_id in self.push_notification_infos
+            )
 
     async def on_set_task_push_notification(
         self, request: SetTaskPushNotificationRequest
@@ -234,10 +251,13 @@ class InMemoryTaskManager(TaskManager):
         session or message is rejected to protect idempotency.
         """
         logger.info("Getting or creating task %s", task_send_params.id)
+        principal_id = get_memory_principal_id()
 
         async with self.lock:
             task = self.store.load_task(task_send_params.id)
             if task is not None:
+                if self.store.get_task_owner(task_send_params.id) != principal_id:
+                    raise ValueError("Task ID is not available to this principal")
                 self.tasks[task_send_params.id] = task
                 existing_message = (task.history or [None])[0]
                 if (
@@ -257,7 +277,12 @@ class InMemoryTaskManager(TaskManager):
                 status=TaskStatus(state=TaskState.SUBMITTED),
                 history=[task_send_params.message],
             )
-            task, created = self.store.create_task_if_absent(task)
+            task, created = self.store.create_task_if_absent(
+                task,
+                owner_principal_id=principal_id,
+            )
+            if self.store.get_task_owner(task.id) != principal_id:
+                raise ValueError("Task ID is not available to this principal")
             self.tasks[task.id] = task
             return task, created
 
@@ -275,6 +300,8 @@ class InMemoryTaskManager(TaskManager):
         self, task_id: str, status: TaskStatus, artifacts: list[Artifact]
     ) -> Task:
         async with self.lock:
+            if self.store.get_task_owner(task_id) != get_memory_principal_id():
+                raise ValueError(f"Task {task_id} not found")
             task = self.store.load_task(task_id)
             if task is None:
                 logger.error(f"Task {task_id} not found for updating the task")
@@ -292,7 +319,13 @@ class InMemoryTaskManager(TaskManager):
                     task.artifacts = []
                 task.artifacts.extend(artifacts)
 
-            self.store.save_task(task)
+            lease_owner_id = getattr(self, "lease_owner_ids", {}).get(task_id)
+            if lease_owner_id is None:
+                self.store.save_task(task)
+            elif not self.store.save_task_if_lease_owner(task, lease_owner_id):
+                raise TaskLeaseLostError(
+                    f"Worker lost the execution lease for task {task_id}"
+                )
             return task
 
     def append_task_history(self, task: Task, historyLength: int | None):

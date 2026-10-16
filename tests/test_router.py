@@ -796,3 +796,105 @@ def test_router_rejects_request_before_agent_execution_when_budget_cannot_be_res
     assert result["status"] == "budget_rejected"
     assert result["agents_used"] == []
     ledger.close()
+
+
+def test_stream_cancellation_releases_reservation_and_records_observed_usage(
+    tmp_path,
+    monkeypatch,
+):
+    import asyncio
+    import threading
+    from types import SimpleNamespace
+
+    import app.routing.router as router_module
+    from app.memory.context import use_memory_principal
+    from app.observability.cost import CostPolicy
+    from app.observability.cost_ledger import CostGovernance, _SQLiteCostLedger
+
+    class CostedAgent(FakeAgent):
+        def __init__(self, name):
+            super().__init__(name)
+            self.started = threading.Event()
+            self.finish = threading.Event()
+
+        def invoke(self, query, session_id):
+            self.started.set()
+            self.finish.wait(timeout=3)
+            self.calls.append((query, session_id))
+            return {
+                "status": "completed",
+                "is_task_complete": True,
+                "require_user_input": False,
+                "content": f"{self.name} result",
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+            }
+
+    agents = fake_agents()
+    agents["deep_learning"] = CostedAgent("deep_learning")
+    agents["code"] = CostedAgent("code")
+    router = MultiAgent(agents=agents, critic=FakeCritic())
+    router.cost_policy = CostPolicy(
+        input_usd_per_1m_tokens=1.0,
+        output_usd_per_1m_tokens=2.0,
+    )
+
+    ledger = _SQLiteCostLedger(str(tmp_path / "cancelled-stream-costs.db"), "test-secret")
+    router.cost_governance = CostGovernance(
+        ledger,
+        daily_token_limit=1000,
+        monthly_token_limit=1000,
+    )
+    monkeypatch.setattr(
+        router_module,
+        "settings",
+        SimpleNamespace(
+            a2a_budget_admission_enabled=True,
+            a2a_budget_admission_output_tokens_per_agent=10,
+            a2a_budget_admission_reservation_seconds=300,
+        ),
+    )
+
+    async def scenario():
+        with use_memory_principal("tenant-a"):
+            stream = router.stream(
+                "Build a Python CNN image classification pipeline",
+                "cancelled-cost-session",
+            )
+            planning_event = await stream.__anext__()
+            assert planning_event["status"] == "working"
+
+            pending_event = asyncio.create_task(stream.__anext__())
+            started = await asyncio.to_thread(
+                agents["deep_learning"].started.wait,
+                1.0,
+            )
+            assert started is True
+            pending_event.cancel()
+            await asyncio.sleep(0.02)
+
+            # The reservation remains held while the already-started provider call
+            # completes and its token usage becomes observable to CostBudget.
+            assert ledger.connection.execute(
+                "SELECT COUNT(*) FROM cost_budget_reservations"
+            ).fetchone()[0] == 1
+            agents["deep_learning"].finish.set()
+            try:
+                await pending_event
+            except asyncio.CancelledError:
+                pass
+            else:
+                raise AssertionError("The stream consumer should be cancelled")
+
+        row = ledger.connection.execute(
+            "SELECT input_tokens, output_tokens, status FROM cost_ledger"
+        ).fetchone()
+        assert row == (10, 5, "cancelled")
+        assert ledger.connection.execute(
+            "SELECT COUNT(*) FROM cost_budget_reservations"
+        ).fetchone()[0] == 0
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        ledger.close()
+

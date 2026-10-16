@@ -226,3 +226,62 @@ def test_base_agent_reads_request_scoped_principal(tmp_path):
         assert "tenant B context" in agent._memory_context("s")
         assert "tenant A context" not in agent._memory_context("s")
     agent.memory_store.close()
+
+
+def test_base_agent_checkpointer_isolated_by_principal_and_session(tmp_path):
+    from app.agents.base import BaseAgent
+
+    agent = BaseAgent.__new__(BaseAgent)
+    agent.memory_agent_type = "code"
+    agent.memory_store = SQLiteConversationMemory(
+        str(tmp_path / "memory.db"),
+        namespace_secret="test-secret",
+    )
+
+    with use_memory_principal("tenant-a"):
+        tenant_a_config = agent._config("shared-session")
+        tenant_a_again = agent._config("shared-session")
+        other_session_config = agent._config("another-session")
+
+    with use_memory_principal("tenant-b"):
+        tenant_b_config = agent._config("shared-session")
+
+    tenant_a_thread = tenant_a_config["configurable"]["thread_id"]
+    tenant_b_thread = tenant_b_config["configurable"]["thread_id"]
+
+    assert tenant_a_thread == tenant_a_again["configurable"]["thread_id"]
+    assert tenant_a_thread != tenant_b_thread
+    assert tenant_a_thread != other_session_config["configurable"]["thread_id"]
+    assert tenant_a_thread != "shared-session"
+    assert tenant_b_thread != "shared-session"
+
+    agent.memory_store.close()
+
+
+def test_sqlite_task_store_quarantines_legacy_tasks_without_owner(tmp_path):
+    import sqlite3
+
+    database_path = tmp_path / "legacy-tasks.db"
+    legacy_task = Task(
+        id="legacy-task",
+        sessionId="legacy-session",
+        status=TaskStatus(state=TaskState.SUBMITTED),
+        history=[],
+    )
+
+    connection = sqlite3.connect(database_path)
+    connection.execute(
+        "CREATE TABLE tasks (id TEXT PRIMARY KEY, payload TEXT NOT NULL)"
+    )
+    connection.execute(
+        "INSERT INTO tasks (id, payload) VALUES (?, ?)",
+        (legacy_task.id, legacy_task.model_dump_json()),
+    )
+    connection.commit()
+    connection.close()
+
+    store = SQLiteTaskStore(str(database_path))
+    assert store.load_task("legacy-task") is not None
+    assert store.get_task_owner("legacy-task") is None
+    assert store.list_recoverable_tasks(10) == []
+    store.close()
