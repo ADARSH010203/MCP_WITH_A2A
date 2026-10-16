@@ -1793,7 +1793,7 @@ class MultiAgent:
                 "cost": cost_budget.snapshot(),
             }
             final_response = self._record_cost_ledger(trace, final_response)
-                ledger_recorded = True
+            ledger_recorded = True
             final_response["cost"] = {
                 **cost_budget.snapshot(),
                 **(
