@@ -797,19 +797,29 @@ def test_router_rejects_request_before_agent_execution_when_budget_cannot_be_res
     assert result["agents_used"] == []
     ledger.close()
 
+
 def test_stream_cancellation_releases_reservation_and_records_observed_usage(
     tmp_path,
     monkeypatch,
 ):
-    import app.routing.router as router_module
+    import asyncio
+    import threading
     from types import SimpleNamespace
 
+    import app.routing.router as router_module
     from app.memory.context import use_memory_principal
     from app.observability.cost import CostPolicy
     from app.observability.cost_ledger import CostGovernance, _SQLiteCostLedger
 
     class CostedAgent(FakeAgent):
+        def __init__(self, name):
+            super().__init__(name)
+            self.started = threading.Event()
+            self.finish = threading.Event()
+
         def invoke(self, query, session_id):
+            self.started.set()
+            self.finish.wait(timeout=3)
             self.calls.append((query, session_id))
             return {
                 "status": "completed",
@@ -853,14 +863,27 @@ def test_stream_cancellation_releases_reservation_and_records_observed_usage(
             planning_event = await anext(stream)
             assert planning_event["status"] == "working"
 
-            specialist_event = await anext(stream)
-            assert specialist_event["status"] == "working"
-            assert specialist_event["cost"]["total_tokens"] >= 15
+            pending_event = asyncio.create_task(anext(stream))
+            started = await asyncio.to_thread(
+                agents["deep_learning"].started.wait,
+                1.0,
+            )
+            assert started is True
+            pending_event.cancel()
+            await asyncio.sleep(0.02)
+
+            # The reservation remains held while the already-started provider call
+            # completes and its token usage becomes observable to CostBudget.
             assert ledger.connection.execute(
                 "SELECT COUNT(*) FROM cost_budget_reservations"
             ).fetchone()[0] == 1
-
-            await stream.aclose()
+            agents["deep_learning"].finish.set()
+            try:
+                await pending_event
+            except asyncio.CancelledError:
+                pass
+            else:
+                raise AssertionError("The stream consumer should be cancelled")
 
         row = ledger.connection.execute(
             "SELECT input_tokens, output_tokens, status FROM cost_ledger"
