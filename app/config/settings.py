@@ -1,5 +1,6 @@
 """Application configuration loaded from environment variables."""
 
+import math
 import os
 import re
 from dataclasses import dataclass, field
@@ -11,9 +12,18 @@ load_dotenv()
 
 def _env_bool(name: str, default: bool) -> bool:
     value = os.getenv(name)
-    if value is None:
+    if value is None or not value.strip():
         return default
-    return value.strip().casefold() in {"1", "true", "yes", "on"}
+
+    normalized = value.strip().casefold()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+
+    raise ValueError(
+        f"{name} must be a boolean (true/false, 1/0, yes/no, or on/off)"
+    )
 
 
 def _env_int(name: str, default: int, minimum: int = 0) -> int:
@@ -37,6 +47,8 @@ def _env_float(name: str, default: float, minimum: float = 0.0) -> float:
         parsed = float(value)
     except ValueError as exc:
         raise ValueError(f"{name} must be a number") from exc
+    if not math.isfinite(parsed):
+        raise ValueError(f"{name} must be a finite number")
     if parsed < minimum:
         raise ValueError(f"{name} must be >= {minimum}")
     return parsed
