@@ -796,3 +796,82 @@ def test_router_rejects_request_before_agent_execution_when_budget_cannot_be_res
     assert result["status"] == "budget_rejected"
     assert result["agents_used"] == []
     ledger.close()
+
+def test_stream_cancellation_releases_reservation_and_records_observed_usage(
+    tmp_path,
+    monkeypatch,
+):
+    import app.routing.router as router_module
+    from types import SimpleNamespace
+
+    from app.memory.context import use_memory_principal
+    from app.observability.cost import CostPolicy
+    from app.observability.cost_ledger import CostGovernance, _SQLiteCostLedger
+
+    class CostedAgent(FakeAgent):
+        def invoke(self, query, session_id):
+            self.calls.append((query, session_id))
+            return {
+                "status": "completed",
+                "is_task_complete": True,
+                "require_user_input": False,
+                "content": f"{self.name} result",
+                "usage": {"input_tokens": 10, "output_tokens": 5},
+            }
+
+    agents = fake_agents()
+    agents["deep_learning"] = CostedAgent("deep_learning")
+    agents["code"] = CostedAgent("code")
+    router = MultiAgent(agents=agents, critic=FakeCritic())
+    router.cost_policy = CostPolicy(
+        input_usd_per_1m_tokens=1.0,
+        output_usd_per_1m_tokens=2.0,
+    )
+
+    ledger = _SQLiteCostLedger(str(tmp_path / "cancelled-stream-costs.db"), "test-secret")
+    router.cost_governance = CostGovernance(
+        ledger,
+        daily_token_limit=1000,
+        monthly_token_limit=1000,
+    )
+    monkeypatch.setattr(
+        router_module,
+        "settings",
+        SimpleNamespace(
+            a2a_budget_admission_enabled=True,
+            a2a_budget_admission_output_tokens_per_agent=10,
+            a2a_budget_admission_reservation_seconds=300,
+        ),
+    )
+
+    async def scenario():
+        with use_memory_principal("tenant-a"):
+            stream = router.stream(
+                "Build a Python CNN image classification pipeline",
+                "cancelled-cost-session",
+            )
+            planning_event = await anext(stream)
+            assert planning_event["status"] == "working"
+
+            specialist_event = await anext(stream)
+            assert specialist_event["status"] == "working"
+            assert specialist_event["cost"]["total_tokens"] >= 15
+            assert ledger.connection.execute(
+                "SELECT COUNT(*) FROM cost_budget_reservations"
+            ).fetchone()[0] == 1
+
+            await stream.aclose()
+
+        row = ledger.connection.execute(
+            "SELECT input_tokens, output_tokens, status FROM cost_ledger"
+        ).fetchone()
+        assert row == (10, 5, "cancelled")
+        assert ledger.connection.execute(
+            "SELECT COUNT(*) FROM cost_budget_reservations"
+        ).fetchone()[0] == 0
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        ledger.close()
+

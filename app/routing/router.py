@@ -2,6 +2,7 @@
 
 import asyncio
 import contextvars
+import logging
 from functools import partial
 import re
 import threading
@@ -1498,140 +1499,204 @@ class MultiAgent:
         budget = CallBudget(self.max_agent_calls_per_task)
         cost_budget = CostBudget(self.cost_policy)
         reservation_key = self._admit_budget(query, plan, trace)
+        ledger_recorded = False
+        interruption_status = "interrupted"
+        try:
 
-        if (
-            self.cost_governance is not None
-            and settings.a2a_budget_admission_enabled
-            and reservation_key is None
-        ):
+            if (
+                self.cost_governance is not None
+                and settings.a2a_budget_admission_enabled
+                and reservation_key is None
+            ):
+                yield {
+                    "is_task_complete": False,
+                    "require_user_input": False,
+                    "status": "budget_rejected",
+                    "content": (
+                        "The request was rejected before model execution because "
+                        "the principal budget has insufficient reserved capacity."
+                    ),
+                    "agents_used": [],
+                    "collaboration_mode": plan.mode,
+                    "critic_reviewed": False,
+                    "collaboration_plan": plan.to_dict(),
+                    "cost": cost_budget.snapshot(),
+                    "collaboration_trace": trace.snapshot(),
+                }
+                return
+
+            if plan.mode == "single-agent":
+                agent_type = plan.agents[0]
+                async for response in self._stream_agent_with_timeout(
+                    agent_type,
+                    query,
+                    session_id,
+                    budget,
+                    trace,
+                    cost_budget,
+                ):
+                    response.setdefault("agents_used", [agent_type])
+                    response.setdefault("collaboration_mode", "single-agent")
+                    response.setdefault("critic_reviewed", False)
+                    response.setdefault("collaboration_plan", plan.to_dict())
+
+                    terminal = (
+                        response.get("is_task_complete")
+                        or response.get("status")
+                        in {"error", "timeout", "budget_exceeded"}
+                    )
+                    if terminal:
+                        trace.record(
+                            "request_completed",
+                            "coordinator",
+                            str(response.get("status", "completed")),
+                            (time.perf_counter() - started) * 1000,
+                        )
+                        response["cost"] = {
+                            **cost_budget.snapshot(),
+                            **(
+                                response.get("cost")
+                                if isinstance(response.get("cost"), dict)
+                                else {}
+                            ),
+                        }
+                        response = self._record_cost_ledger(trace, response)
+                        ledger_recorded = True
+
+                    response["cost"] = {
+                        **cost_budget.snapshot(),
+                        **(
+                            response.get("cost")
+                            if isinstance(response.get("cost"), dict)
+                            else {}
+                        ),
+                    }
+                    response["collaboration_trace"] = trace.snapshot()
+                    yield response
+                return
+
             yield {
                 "is_task_complete": False,
                 "require_user_input": False,
-                "status": "budget_rejected",
+                "status": "working",
                 "content": (
-                    "The request was rejected before model execution because "
-                    "the principal budget has insufficient reserved capacity."
+                    "Planning a collaborative response with: "
+                    + ", ".join(agent_types)
+                    + "."
                 ),
-                "agents_used": [],
-                "collaboration_mode": plan.mode,
-                "critic_reviewed": False,
                 "collaboration_plan": plan.to_dict(),
-                "cost": cost_budget.snapshot(),
+                "agents_used": agent_types,
+                "collaboration_mode": "multi-agent",
                 "collaboration_trace": trace.snapshot(),
+                "cost": cost_budget.snapshot(),
             }
-            return
 
-        if plan.mode == "single-agent":
-            agent_type = plan.agents[0]
-            async for response in self._stream_agent_with_timeout(
-                agent_type,
-                query,
-                session_id,
-                budget,
-                trace,
-                cost_budget,
-            ):
-                response.setdefault("agents_used", [agent_type])
-                response.setdefault("collaboration_mode", "single-agent")
-                response.setdefault("critic_reviewed", False)
-                response.setdefault("collaboration_plan", plan.to_dict())
-
-                terminal = (
-                    response.get("is_task_complete")
-                    or response.get("status")
-                    in {"error", "timeout", "budget_exceeded"}
-                )
-                if terminal:
-                    trace.record(
-                        "request_completed",
-                        "coordinator",
-                        str(response.get("status", "completed")),
-                        (time.perf_counter() - started) * 1000,
-                    )
-                    response = self._record_cost_ledger(trace, response)
-                    self._release_budget(reservation_key)
-
-                response["cost"] = {
-                    **cost_budget.snapshot(),
-                    **(
-                        response.get("cost")
-                        if isinstance(response.get("cost"), dict)
-                        else {}
-                    ),
+            specialist_groups = sorted(
+                {
+                    step.parallel_group
+                    for step in plan.steps
+                    if step.agent != "critic"
                 }
-                response["collaboration_trace"] = trace.snapshot()
-                yield response
-            return
+            )
 
-        yield {
-            "is_task_complete": False,
-            "require_user_input": False,
-            "status": "working",
-            "content": (
-                "Planning a collaborative response with: "
-                + ", ".join(agent_types)
-                + "."
-            ),
-            "collaboration_plan": plan.to_dict(),
-            "agents_used": agent_types,
-            "collaboration_mode": "multi-agent",
-            "collaboration_trace": trace.snapshot(),
-            "cost": cost_budget.snapshot(),
-        }
-
-        specialist_groups = sorted(
-            {
-                step.parallel_group
-                for step in plan.steps
-                if step.agent != "critic"
-            }
-        )
-
-        stream_outcomes: list[dict[str, Any]] = []
-        for group in specialist_groups:
-            group_steps = [
-                step
-                for step in plan.steps
-                if step.parallel_group == group and step.agent != "critic"
-            ]
-            independent_steps = [
-                step for step in group_steps if not step.depends_on
-            ]
-            dependent_steps = [
-                step for step in group_steps if step.depends_on
-            ]
-
-            if independent_steps:
-                tasks = [
-                    asyncio.create_task(
-                        asyncio.to_thread(
-                            self._run_specialist_safely,
-                            step.agent,
-                            query,
-                            session_id,
-                            None,
-                            budget,
-                            trace,
-                            cost_budget,
-                        )
-                    )
-                    for step in independent_steps
+            stream_outcomes: list[dict[str, Any]] = []
+            for group in specialist_groups:
+                group_steps = [
+                    step
+                    for step in plan.steps
+                    if step.parallel_group == group and step.agent != "critic"
                 ]
-                group_outcomes = list(await asyncio.gather(*tasks))
-                stream_outcomes.extend(group_outcomes)
+                independent_steps = [
+                    step for step in group_steps if not step.depends_on
+                ]
+                dependent_steps = [
+                    step for step in group_steps if step.depends_on
+                ]
 
-                for outcome in group_outcomes:
+                if independent_steps:
+                    tasks = [
+                        asyncio.create_task(
+                            asyncio.to_thread(
+                                self._run_specialist_safely,
+                                step.agent,
+                                query,
+                                session_id,
+                                None,
+                                budget,
+                                trace,
+                                cost_budget,
+                            )
+                        )
+                        for step in independent_steps
+                    ]
+                    group_outcomes = list(await asyncio.gather(*tasks))
+                    stream_outcomes.extend(group_outcomes)
+
+                    for outcome in group_outcomes:
+                        yield {
+                            "is_task_complete": False,
+                            "require_user_input": False,
+                            "status": "working",
+                            "content": (
+                                f"{outcome['agent']} specialist completed its analysis."
+                                if outcome["status"] == "completed"
+                                else (
+                                    f"{outcome['agent']} specialist did not return "
+                                    "a usable result."
+                                )
+                            ),
+                            "agents_used": agent_types,
+                            "collaboration_mode": "multi-agent",
+                            "collaboration_plan": plan.to_dict(),
+                            "collaboration_trace": trace.snapshot(),
+                            "cost": cost_budget.snapshot(),
+                        }
+
+                for step in dependent_steps:
+                    upstream = [
+                        outcome
+                        for outcome in stream_outcomes
+                        if outcome["agent"] in step.depends_on
+                        and outcome["status"] == "completed"
+                        and outcome["content"]
+                    ]
+                    trace.record(
+                        "handoff",
+                        step.agent,
+                        "started",
+                        details={
+                            "upstream": [item["agent"] for item in upstream]
+                        },
+                    )
+                    outcome = await asyncio.to_thread(
+                        self._run_specialist_safely,
+                        step.agent,
+                        query,
+                        session_id,
+                        upstream,
+                        budget,
+                        trace,
+                        cost_budget,
+                    )
+                    stream_outcomes.append(outcome)
+                    trace.record(
+                        "handoff",
+                        step.agent,
+                        "completed",
+                        details={
+                            "upstream": [item["agent"] for item in upstream],
+                            "status": outcome["status"],
+                        },
+                    )
                     yield {
                         "is_task_complete": False,
                         "require_user_input": False,
                         "status": "working",
                         "content": (
-                            f"{outcome['agent']} specialist completed its analysis."
+                            f"{step.agent} specialist completed its implementation "
+                            "using upstream findings."
                             if outcome["status"] == "completed"
-                            else (
-                                f"{outcome['agent']} specialist did not return "
-                                "a usable result."
-                            )
+                            else f"{step.agent} specialist did not return a usable result."
                         ),
                         "agents_used": agent_types,
                         "collaboration_mode": "multi-agent",
@@ -1640,118 +1705,95 @@ class MultiAgent:
                         "cost": cost_budget.snapshot(),
                     }
 
-            for step in dependent_steps:
-                upstream = [
+            yield {
+                "is_task_complete": False,
+                "require_user_input": False,
+                "status": "working",
+                "content": "Critic is comparing the specialist findings...",
+                "agents_used": agent_types,
+                "collaboration_mode": "multi-agent",
+                "collaboration_plan": plan.to_dict(),
+                "collaboration_trace": trace.snapshot(),
+                "cost": cost_budget.snapshot(),
+            }
+
+            synthesis = await asyncio.to_thread(
+                self._synthesize_with_timeout,
+                query,
+                stream_outcomes,
+                budget,
+                trace,
+                cost_budget,
+            )
+
+            if synthesis.get("status") in {"budget_exceeded", "timeout", "error"}:
+                successful = [
                     outcome
                     for outcome in stream_outcomes
-                    if outcome["agent"] in step.depends_on
-                    and outcome["status"] == "completed"
-                    and outcome["content"]
+                    if outcome.get("status") == "completed" and outcome.get("content")
                 ]
+                fallback = "\n\n".join(
+                    f"{item['agent']}: {item['content']}"
+                    for item in successful
+                )
                 trace.record(
-                    "handoff",
-                    step.agent,
-                    "started",
-                    details={
-                        "upstream": [item["agent"] for item in upstream]
-                    },
+                    "request_completed",
+                    "coordinator",
+                    "completed" if successful else "error",
+                    (time.perf_counter() - started) * 1000,
                 )
-                outcome = await asyncio.to_thread(
-                    self._run_specialist_safely,
-                    step.agent,
-                    query,
-                    session_id,
-                    upstream,
-                    budget,
-                    trace,
-                    cost_budget,
-                )
-                stream_outcomes.append(outcome)
-                trace.record(
-                    "handoff",
-                    step.agent,
-                    "completed",
-                    details={
-                        "upstream": [item["agent"] for item in upstream],
-                        "status": outcome["status"],
-                    },
-                )
-                yield {
-                    "is_task_complete": False,
+                final_response = {
+                    "is_task_complete": bool(successful),
                     "require_user_input": False,
-                    "status": "working",
+                    "status": "completed" if successful else "error",
                     "content": (
-                        f"{step.agent} specialist completed its implementation "
-                        "using upstream findings."
-                        if outcome["status"] == "completed"
-                        else f"{step.agent} specialist did not return a usable result."
+                        "Critic could not complete the final review. "
+                        "Returning successful specialist findings without synthesis:\n\n"
+                        + fallback
+                        if successful
+                        else synthesis.get(
+                            "content",
+                            "Critic failed before final synthesis.",
+                        )
                     ),
                     "agents_used": agent_types,
                     "collaboration_mode": "multi-agent",
+                    "critic_reviewed": False,
                     "collaboration_plan": plan.to_dict(),
-                    "collaboration_trace": trace.snapshot(),
                     "cost": cost_budget.snapshot(),
                 }
+                final_response = self._record_cost_ledger(trace, final_response)
+                ledger_recorded = True
+                final_response["cost"] = {
+                    **cost_budget.snapshot(),
+                    **(
+                        final_response.get("cost")
+                        if isinstance(final_response.get("cost"), dict)
+                        else {}
+                    ),
+                }
+                final_response["collaboration_trace"] = trace.snapshot()
+                yield final_response
+                return
 
-        yield {
-            "is_task_complete": False,
-            "require_user_input": False,
-            "status": "working",
-            "content": "Critic is comparing the specialist findings...",
-            "agents_used": agent_types,
-            "collaboration_mode": "multi-agent",
-            "collaboration_plan": plan.to_dict(),
-            "collaboration_trace": trace.snapshot(),
-            "cost": cost_budget.snapshot(),
-        }
-
-        synthesis = await asyncio.to_thread(
-            self._synthesize_with_timeout,
-            query,
-            stream_outcomes,
-            budget,
-            trace,
-            cost_budget,
-        )
-
-        if synthesis.get("status") in {"budget_exceeded", "timeout", "error"}:
-            successful = [
-                outcome
-                for outcome in stream_outcomes
-                if outcome.get("status") == "completed" and outcome.get("content")
-            ]
-            fallback = "\n\n".join(
-                f"{item['agent']}: {item['content']}"
-                for item in successful
-            )
             trace.record(
                 "request_completed",
                 "coordinator",
-                "completed" if successful else "error",
+                str(synthesis.get("status", "error")),
                 (time.perf_counter() - started) * 1000,
             )
             final_response = {
-                "is_task_complete": bool(successful),
-                "require_user_input": False,
-                "status": "completed" if successful else "error",
-                "content": (
-                    "Critic could not complete the final review. "
-                    "Returning successful specialist findings without synthesis:\n\n"
-                    + fallback
-                    if successful
-                    else synthesis.get(
-                        "content",
-                        "Critic failed before final synthesis.",
-                    )
-                ),
+                "is_task_complete": synthesis.get("status") == "completed",
+                "require_user_input": synthesis.get("status") == "input_required",
+                "status": synthesis.get("status", "error"),
+                "content": synthesis.get("content", ""),
                 "agents_used": agent_types,
-                "collaboration_mode": "multi-agent",
-                "critic_reviewed": False,
+                "critic_reviewed": synthesis.get("critic_reviewed", False),
                 "collaboration_plan": plan.to_dict(),
                 "cost": cost_budget.snapshot(),
             }
             final_response = self._record_cost_ledger(trace, final_response)
-            self._release_budget(reservation_key)
+                ledger_recorded = True
             final_response["cost"] = {
                 **cost_budget.snapshot(),
                 **(
@@ -1762,33 +1804,48 @@ class MultiAgent:
             }
             final_response["collaboration_trace"] = trace.snapshot()
             yield final_response
-            return
 
-        trace.record(
-            "request_completed",
-            "coordinator",
-            str(synthesis.get("status", "error")),
-            (time.perf_counter() - started) * 1000,
-        )
-        final_response = {
-            "is_task_complete": synthesis.get("status") == "completed",
-            "require_user_input": synthesis.get("status") == "input_required",
-            "status": synthesis.get("status", "error"),
-            "content": synthesis.get("content", ""),
-            "agents_used": agent_types,
-            "critic_reviewed": synthesis.get("critic_reviewed", False),
-            "collaboration_plan": plan.to_dict(),
-            "cost": cost_budget.snapshot(),
-        }
-        final_response = self._record_cost_ledger(trace, final_response)
-        self._release_budget(reservation_key)
-        final_response["cost"] = {
-            **cost_budget.snapshot(),
-            **(
-                final_response.get("cost")
-                if isinstance(final_response.get("cost"), dict)
-                else {}
-            ),
-        }
-        final_response["collaboration_trace"] = trace.snapshot()
-        yield final_response
+        except (GeneratorExit, asyncio.CancelledError):
+            interruption_status = "cancelled"
+            raise
+        except BaseException:
+            interruption_status = "error"
+            raise
+        finally:
+            try:
+                if not ledger_recorded and self.cost_governance is not None:
+                    snapshot = cost_budget.snapshot()
+                    has_observed_usage = (
+                        snapshot["total_tokens"] > 0
+                        or snapshot["estimated_cost_usd"] > 0
+                    )
+                    if has_observed_usage:
+                        try:
+                            trace.record(
+                                "request_interrupted",
+                                "coordinator",
+                                interruption_status,
+                                (time.perf_counter() - started) * 1000,
+                            )
+                            self._record_cost_ledger(
+                                trace,
+                                {
+                                    "status": interruption_status,
+                                    "agents_used": agent_types,
+                                    "cost": snapshot,
+                                },
+                            )
+                            ledger_recorded = True
+                        except Exception:
+                            logging.getLogger(__name__).exception(
+                                "Failed to record partial stream cost for trace %s",
+                                trace.trace_id,
+                            )
+            finally:
+                try:
+                    self._release_budget(reservation_key)
+                except Exception:
+                    logging.getLogger(__name__).exception(
+                        "Failed to release stream budget reservation for trace %s",
+                        trace.trace_id,
+                    )
