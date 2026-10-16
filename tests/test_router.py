@@ -860,10 +860,10 @@ def test_stream_cancellation_releases_reservation_and_records_observed_usage(
                 "Build a Python CNN image classification pipeline",
                 "cancelled-cost-session",
             )
-            planning_event = await anext(stream)
+            planning_event = await stream.__anext__()
             assert planning_event["status"] == "working"
 
-            pending_event = asyncio.create_task(anext(stream))
+            pending_event = asyncio.create_task(stream.__anext__())
             started = await asyncio.to_thread(
                 agents["deep_learning"].started.wait,
                 1.0,
